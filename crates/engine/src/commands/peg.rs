@@ -253,8 +253,8 @@ pub(super) fn set_parent(s: &mut Session, params: Value) -> Result<Value> {
     Ok(Value::Null)
 }
 
-/// Makes a peg follow a point of a chain of bones or a curve of its shot (plan §4.5), as
-/// Harmony's kinematic output: the peg is carried as the point is posed. With `bends`, as a
+/// Makes a peg follow a point of a chain of bones or a curve of its shot (plan §4.5), as a
+/// kinematic output: the peg is carried as the point is posed. With `bends`, as a
 /// wire made new has unless told, the drawings right under it are bent by the bones as their
 /// own drawings are, and the pegs under it are carried; without, nothing it carries is bent.
 /// `point` is the joint of a chain or the point of a curve, 0 where it starts; left out it is

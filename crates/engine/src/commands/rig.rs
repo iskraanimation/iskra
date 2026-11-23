@@ -72,8 +72,8 @@ impl Part {
 }
 
 /// The pixels of a cutter's Alpha Size a matte resize's radius of 1 is brought as. Its unit is
-/// not known: the user's rig, with a radius of 0.6 on its hair's mattes, matched Harmony at
-/// 2 px (2026-10-30).
+/// not known: the user's rig, with a radius of 0.6 on its hair's mattes, matched its reference
+/// render at 2 px (2026-10-30).
 const MATTE_RESIZE_PIXELS: f64 = 2.0 / 0.6;
 
 fn kind(node: &RigNode) -> Kind {

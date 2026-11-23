@@ -89,7 +89,7 @@ pub struct Peg {
     pub matches: std::collections::BTreeMap<String, String>,
 }
 
-/// A point of a deformer that a peg follows (plan §4.5), as Harmony's kinematic output: the
+/// A point of a deformer that a peg follows (plan §4.5), as a kinematic output: the
 /// peg goes with the point as the deformer is posed. What it carries is not bent, unless it
 /// `bends`: then the drawings right under it are bent by the deformer as its own drawings
 /// are, and the pegs under it are carried by the point as before.
