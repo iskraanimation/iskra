@@ -4235,22 +4235,54 @@ impl IskraApp {
             if self.tools.tool == Tool::Brush && self.vector_art() {
                 place.row(ui, "Surface", |ui| {
                     let line = "Pencil: a stroke is a line, its middle line and its width, to edit as a line";
-                    if icons::switch(ui, "pencil", !self.tools.surface, line).clicked() {
-                        self.tools.surface = false;
+                    if icons::switch(ui, "pencil", !self.tools.surface && !self.tools.scatter, line).clicked() {
+                        (self.tools.surface, self.tools.scatter) = (false, false);
                     }
                     let area = "Brush: a stroke is a surface, the area it covers with no middle line, merged with the surfaces of its swatch it \
-                                overlaps, as paint is; on others of another swatch it lies on top";
-                    if icons::switch(ui, "brush", self.tools.surface, area).clicked() {
-                        self.tools.surface = true;
+                                overlaps, as paint is; on others of another swatch it lies on top, or under them with Draw Behind";
+                    if icons::switch(ui, "brush", self.tools.surface && !self.tools.scatter, area).clicked() {
+                        (self.tools.surface, self.tools.scatter) = (true, false);
+                    }
+                    let spray = "Scatter: copies of a shape are sprayed along the stroke, each its own size, turned and flipped by chance: \
+                                 one of the presets in the swatch in hand, or the vector art last cut or copied";
+                    if icons::switch(ui, "scatter", self.tools.scatter, spray).clicked() {
+                        self.tools.scatter = true;
                     }
                 });
+                // The scatter brush's settings (Moho's Scatter Brush, the user's of 2026-11-23).
+                if self.tools.scatter {
+                    let with = &mut self.tools.scatter_with;
+                    place.row(ui, "Sprays", |ui| {
+                        egui::ComboBox::from_id_salt("scatter-preset").selected_text(with.preset.title()).show_ui(ui, |ui| {
+                            for preset in iskra_drawing::ScatterPreset::ALL {
+                                ui.selectable_value(&mut with.preset, preset, preset.title());
+                            }
+                        })
+                    });
+                    let least = egui::DragValue::new(&mut with.min_size).range(1.0..=2000.0).speed(0.5).prefix(place.on_bar("Min "));
+                    place.row(ui, "Min Size", |ui| ui.add(least)).on_hover_text("The smallest a copy is across, in the shot's pixels");
+                    let most = egui::DragValue::new(&mut with.max_size).range(1.0..=2000.0).speed(0.5).prefix(place.on_bar("Max "));
+                    place.row(ui, "Max Size", |ui| ui.add(most)).on_hover_text("The largest a copy is across: each is between, by chance");
+                    let spacing = egui::DragValue::new(&mut with.spacing).range(1.0..=2000.0).speed(0.5).prefix(place.on_bar("Spacing "));
+                    place.row(ui, "Spacing", |ui| ui.add(spacing)).on_hover_text("How far apart the copies are along the stroke, in the shot's pixels");
+                    let angle = egui::DragValue::new(&mut with.angle_jitter).range(0.0..=180.0).speed(1.0).suffix("°").prefix(place.on_bar("Angle "));
+                    place.row(ui, "Angle Jitter", |ui| ui.add(angle)).on_hover_text("How far a copy may be turned either way, by chance");
+                    if place.row(ui, "Flip X", |ui| icons::switch(ui, "flip-across", with.flip_x, "Half the copies flipped left to right, by chance")).clicked()
+                    {
+                        with.flip_x = !with.flip_x;
+                    }
+                    if place.row(ui, "Flip Y", |ui| icons::switch(ui, "flip-up", with.flip_y, "Half the copies flipped upside down, by chance")).clicked() {
+                        with.flip_y = !with.flip_y;
+                    }
+                }
             }
             ui.separator();
         }
         if self.tools.tool == Tool::Brush {
             use iskra_drawing::PaintMode;
             let mut behind = self.tools.paint_mode == PaintMode::Behind;
-            let hint = "Draw behind: a new stroke goes under what is already drawn on the art layer, as on a layer below, on pixels and on vector art";
+            let hint = "Draw behind: a new stroke goes under what is already drawn on the art layer, as on a layer below, on pixels and on vector art; \
+                        a vector surface still merges with those of its swatch, under the rest";
             if place.row(ui, "Draw Behind", |ui| icons::switch(ui, "draw-behind", behind, hint)).clicked() {
                 behind = !behind;
                 self.tools.paint_mode = if behind { PaintMode::Behind } else { PaintMode::Over };
@@ -4262,8 +4294,8 @@ impl IskraApp {
                 repaint = !repaint;
                 self.tools.paint_mode = if repaint { PaintMode::Repaint } else { PaintMode::Over };
             }
-            // Surfaces are merged anyway.
-            if self.vector_art() && !self.tools.surface {
+            // Surfaces are merged anyway, and scattered copies are not.
+            if self.vector_art() && !self.tools.surface && !self.tools.scatter {
                 let hint = "Auto-flatten: a stroke that overlaps others of its swatch is merged into one shape with them, their outline; \
                             shapes of other swatches stay apart";
                 if place.row(ui, "Auto-Flatten", |ui| icons::switch(ui, "flatten", self.tools.auto_flatten, hint)).clicked() {
@@ -4275,15 +4307,40 @@ impl IskraApp {
         if self.tools.tool == Tool::Shape {
             place.row(ui, "Shape", |ui| {
                 for shape in iskra_model::Shape::ALL {
-                    let id = ["tool.line", "tool.rectangle", "tool.ellipse", "tool.polyline"][shape as usize];
+                    let id = [
+                        "tool.line",
+                        "tool.rectangle",
+                        "tool.ellipse",
+                        "tool.polyline",
+                        "tool.triangle",
+                        "tool.star",
+                        "tool.arrow",
+                        "tool.spiral",
+                        "tool.grid",
+                    ][shape as usize];
                     let hint = match shape {
                         iskra_model::Shape::Polyline => {
                             "Click each corner. A double click ends it there, a click on its first corner closes it, Escape gives it up"
                         }
+                        iskra_model::Shape::Triangle => "Drag from one corner of the box it lies in to the other, its point at the top. With Shift: even",
+                        iskra_model::Shape::Star => "Drag from one corner of the box it lies in to the other, a point at the top. With Shift: even",
+                        iskra_model::Shape::Arrow => "Drag from its tail to its head. With Shift: at a step of 45°",
+                        iskra_model::Shape::Spiral => "Drag out from its middle: the further, the more it winds. Spacing sets how far apart its turns are",
+                        iskra_model::Shape::Grid => "Drag from one corner to the other: a box cut into the rows and columns set here",
                         _ => "Drag from one end or corner to the other. With Shift: a line at a step of 45°, a square, a circle",
                     };
                     let hint = self.hint(&format!("{}: {hint}", shape.title()), id);
-                    let icon = ["shape-line", "shape-rectangle", "shape-ellipse", "shape-polyline"][shape as usize];
+                    let icon = [
+                        "shape-line",
+                        "shape-rectangle",
+                        "shape-ellipse",
+                        "shape-polyline",
+                        "shape-triangle",
+                        "shape-star",
+                        "shape-arrow",
+                        "shape-spiral",
+                        "shape-grid",
+                    ][shape as usize];
                     if icons::switch(ui, icon, self.tools.shape == shape, &hint).clicked() {
                         self.tools.shape = shape;
                     }
@@ -4299,19 +4356,42 @@ impl IskraApp {
                 {
                     form.closed = !form.closed;
                 }
-            } else {
-                if place
+            } else if self.tools.shape != iskra_model::Shape::Spiral
+                && place
                     .row(ui, "From the Middle", |ui| {
                         icons::switch(ui, "from-middle", form.centred, "The press is the shape's middle, and it is dragged out from there to all sides")
                     })
                     .clicked()
-                {
-                    form.centred = !form.centred;
-                }
+            {
+                form.centred = !form.centred;
             }
             let hint = "The inside is painted too, with the swatch in hand, on the art layer in hand";
-            if self.tools.shape != iskra_model::Shape::Line && place.row(ui, "Filled", |ui| icons::switch(ui, "filled", form.filled, hint)).clicked() {
+            let shape = self.tools.shape;
+            if shape.has_inside() && place.row(ui, "Filled", |ui| icons::switch(ui, "filled", form.filled, hint)).clicked() {
                 form.filled = !form.filled;
+            }
+            // Moho's Auto-stroke off: the inside alone (the user's of 2026-11-23).
+            let hint = "No line: a filled shape is its inside alone, with no line round it";
+            if shape.has_inside() && form.filled && place.row(ui, "No Line", |ui| icons::switch(ui, "no-line", form.no_line, hint)).clicked() {
+                form.no_line = !form.no_line;
+            }
+            if shape == iskra_model::Shape::Star {
+                let tips = egui::DragValue::new(&mut form.tips).range(3..=64).prefix(place.on_bar("Points "));
+                place.row(ui, "Points", |ui| ui.add(tips)).on_hover_text("How many points the star has");
+            }
+            if shape == iskra_model::Shape::Spiral {
+                let spacing = egui::DragValue::new(&mut form.spacing).range(1.0..=2000.0).speed(0.5).prefix(place.on_bar("Spacing "));
+                place.row(ui, "Spacing", |ui| ui.add(spacing)).on_hover_text("How far apart the spiral's turns are, in the shot's pixels");
+                let hint = "Against the clock: the spiral winds the other way";
+                if place.row(ui, "Counter", |ui| icons::switch(ui, "turn-left", form.counter, hint)).clicked() {
+                    form.counter = !form.counter;
+                }
+            }
+            if shape == iskra_model::Shape::Grid {
+                let rows = egui::DragValue::new(&mut form.rows).range(1..=200).prefix(place.on_bar("Rows "));
+                place.row(ui, "Rows", |ui| ui.add(rows)).on_hover_text("How many rows the grid is cut into");
+                let columns = egui::DragValue::new(&mut form.columns).range(1..=200).prefix(place.on_bar("Columns "));
+                place.row(ui, "Columns", |ui| ui.add(columns)).on_hover_text("How many columns the grid is cut into");
             }
             if self.tools.shape == iskra_model::Shape::Rectangle {
                 let hint = "How far the rectangle's corners are rounded, in the shot's pixels. 0 leaves them sharp";
@@ -14311,6 +14391,63 @@ mod tests {
     }
 
     #[test]
+    fn the_shape_tool_draws_vector_shapes_on_vector_art() {
+        let mut h = Harness::new();
+        let layer = h.app.layer.unwrap();
+        h.app.run("layer.setArtMode", json!({ "layer": layer.0, "artLayer": "lineArt", "mode": "vector" }));
+        let kinds = |h: &Harness| {
+            let drawing = h.app.session.project().shots[0].layer(layer).unwrap().drawing_at(0).map(|d| d.drawing.clone());
+            let Some(drawing) = drawing else { return String::new() };
+            let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!("vector art") };
+            art.shapes().iter().map(|shape| if matches!(shape.kind, iskra_model::ShapeKind::Fill(_)) { 'f' } else { 's' }).collect::<String>()
+        };
+        // A star, filled: a fill under its line, drawn with the vector brush.
+        run(&mut h, "tool.star");
+        assert_eq!((h.app.tools.tool, h.app.tools.shape), (Tool::Shape, iskra_model::Shape::Star));
+        h.app.tools.form.filled = true;
+        h.frame(vec![]);
+        h.drag_between(Pos2::new(400.0, 300.0), Pos2::new(550.0, 420.0));
+        assert_eq!((kinds(&h).as_str(), h.app.session.history().undo_label(), &h.app.error), ("fs", Some("Star"), &None));
+        // With no line, its fill alone.
+        h.app.tools.form.no_line = true;
+        h.drag_between(Pos2::new(300.0, 200.0), Pos2::new(380.0, 260.0));
+        assert_eq!(kinds(&h), "fsf");
+        // A grid, its lines apart.
+        run(&mut h, "tool.grid");
+        (h.app.tools.form.rows, h.app.tools.form.columns) = (2, 2);
+        h.frame(vec![]);
+        h.drag_between(Pos2::new(420.0, 450.0), Pos2::new(560.0, 520.0));
+        assert_eq!((kinds(&h).as_str(), h.app.session.history().undo_label()), ("fsfsss", Some("Grid")));
+    }
+
+    #[test]
+    fn the_brush_scatters_copies_of_a_shape_on_vector_art() {
+        let mut h = Harness::new();
+        let layer = h.app.layer.unwrap();
+        h.app.run("layer.setArtMode", json!({ "layer": layer.0, "artLayer": "lineArt", "mode": "vector" }));
+        let count = |h: &Harness| {
+            let drawing = h.app.session.project().shots[0].layer(layer).unwrap().drawing_at(0).map(|d| d.drawing.clone());
+            let Some(drawing) = drawing else { return 0 };
+            let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!("vector art") };
+            art.shapes().len()
+        };
+        h.app.tools.tool = Tool::Brush;
+        h.app.tools.scatter = true;
+        h.app.tools.scatter_with =
+            iskra_drawing::Scatter { preset: iskra_drawing::ScatterPreset::Stars, min_size: 10.0, max_size: 20.0, spacing: 30.0, ..Default::default() };
+        h.frame(vec![]);
+        h.drag_between(Pos2::new(300.0, 300.0), Pos2::new(600.0, 300.0));
+        let stars = count(&h);
+        assert!(stars >= 4 && h.app.session.history().undo_label() == Some("Scatter"), "{stars} stars, {:?}", h.app.error);
+        // From the clipboard with nothing copied, it is refused and said.
+        h.app.tools.scatter_with.preset = iskra_drawing::ScatterPreset::Clipboard;
+        h.frame(vec![]);
+        h.drag_between(Pos2::new(300.0, 400.0), Pos2::new(600.0, 400.0));
+        assert_eq!(count(&h), stars);
+        assert!(h.app.error.as_deref().is_some_and(|said| said.contains("clipboard")), "{:?}", h.app.error);
+    }
+
+    #[test]
     fn a_flick_of_the_cutter_takes_off_a_vector_lines_overshoot() {
         let mut h = Harness::new();
         let layer = h.app.layer.unwrap();
@@ -14472,6 +14609,27 @@ mod tests {
         h.drag();
         let (cut, grain) = covered(&h);
         assert!(grain.is_some_and(|grain| grain.dual_brush.enabled) && cut < plain / 2, "{cut} of {plain}");
+    }
+
+    #[test]
+    fn a_stamped_vector_brush_draws_a_line_of_its_tips_stamps() {
+        use iskra_model::ShapeKind;
+        let mut h = Harness::new();
+        let layer = h.app.layer.unwrap();
+        h.app.run("layer.setArtMode", json!({ "layer": layer.0, "artLayer": "lineArt", "mode": "vector" }));
+        h.app.take_brush(iskra_drawing::STAMP_GROUP, "Ink Blots");
+        assert!(h.app.brushes.in_hand.vector.brush.stamp.stamps());
+        h.drag();
+        let drawing = h.app.session.project().shots[0].layer(layer).unwrap().drawing_at(0).unwrap().drawing.clone();
+        let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!("vector art") };
+        let ShapeKind::Stroke(stroke) = &art.shapes()[0].kind else { panic!("a line") };
+        assert!(stroke.stamp.as_ref().is_some_and(|stamp| stamp.build_up && stamp.jitter == 180.0));
+        let bounds = art.raster().bounds();
+        let partly = (bounds.y0..bounds.y1)
+            .flat_map(|y| (bounds.x0..bounds.x1).map(move |x| (x, y)))
+            .filter(|(x, y)| (2000..63000).contains(&art.raster().pixel(*x, *y).coverage))
+            .count();
+        assert!(partly > 100, "its stamps' grain: {partly} pixels partly covered");
     }
 
     #[test]

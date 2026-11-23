@@ -5383,6 +5383,62 @@ fn unused_swatches_go_at_once_palettes_are_reordered_and_a_shot_is_switched_by_a
 }
 
 #[test]
+fn a_shape_on_vector_art_is_vector_strokes_and_a_fill() {
+    use iskra_model::{ArtContent, ArtLayerKind, LayerId, ShapeKind};
+    let mut s = Session::new();
+    let e = layer(&s);
+    s.execute("layer.setArtMode", json!({ "layer": e, "artLayer": "lineArt", "mode": "vector" })).unwrap();
+    let shape = |shape: &str| json!({ "layer": e, "frame": 0, "shape": shape, "from": [100, 100], "to": [300, 200], "swatch": 3, "vectorBrush": { "size": 6, "pressureSize": false } });
+    let kinds = |s: &Session| {
+        let drawing = &s.project().layer(LayerId(e)).unwrap().drawing_at(0).unwrap().drawing;
+        let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!("vector line art") };
+        art.shapes().iter().map(|shape| if matches!(shape.kind, ShapeKind::Fill(_)) { 'f' } else { 's' }).collect::<String>()
+    };
+    // A star filled: its fill under its line, in one step, as wide as the brush.
+    let mut star = shape("star");
+    star["filled"] = json!(true);
+    let steps = s.history().entries().len();
+    s.execute("drawing.shape", star.clone()).unwrap();
+    assert_eq!((kinds(&s).as_str(), s.history().entries().len(), s.history().undo_label()), ("fs", steps + 1, Some("Star")));
+    let drawing = &s.project().layer(LayerId(e)).unwrap().drawing_at(0).unwrap().drawing;
+    let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!() };
+    let ShapeKind::Stroke(line) = &art.shapes()[1].kind else { panic!("a stroke") };
+    assert!(line.widths.iter().all(|width| (width - 6.0).abs() < 1e-6) && line.path.segments().count() == 10, "{:?}", line.widths);
+    // With no line, the fill alone; a shape with no inside and no line is refused.
+    star["noLine"] = json!(true);
+    s.execute("drawing.shape", star).unwrap();
+    assert_eq!(kinds(&s), "fsf");
+    // A spiral has no inside, so it keeps its line.
+    let mut bare = shape("spiral");
+    (bare["filled"], bare["noLine"]) = (json!(true), json!(true));
+    s.execute("drawing.shape", bare).unwrap();
+    assert_eq!(kinds(&s), "fsfs");
+    // A grid is its outside and a line for each row and column inside, apart.
+    let mut grid = shape("grid");
+    (grid["rows"], grid["columns"]) = (json!(2), json!(3));
+    s.execute("drawing.shape", grid).unwrap();
+    assert_eq!(kinds(&s), "fsfsssss");
+    // A polyline through its corners, and an arrow; the eraser draws no shape on vector art.
+    let roof = json!({ "layer": e, "frame": 0, "shape": "polyline", "points": [[100, 200], [200, 100], [300, 200]], "swatch": 3, "closed": true });
+    s.execute("drawing.shape", roof).unwrap();
+    s.execute("drawing.shape", shape("arrow")).unwrap();
+    assert_eq!(kinds(&s), "fsfsssssss");
+    let mut erasing = shape("line");
+    erasing["brush"] = json!({ "erase": true });
+    assert!(matches!(s.execute("drawing.shape", erasing), Err(EngineError::Invalid(_))));
+}
+
+#[test]
+fn a_shape_with_no_line_paints_its_inside_alone() {
+    let mut s = Session::new();
+    let e = swatch_layer(&mut s);
+    let box_ = json!({ "layer": e, "frame": 0, "shape": "triangle", "from": [100, 100], "to": [300, 200], "swatch": 3, "filled": true, "noLine": true, "brush": { "size": 6, "pressureSize": false } });
+    s.execute("drawing.shape", box_).unwrap();
+    let swatch = |x: i32, y: i32| line_pixel(&s, e, 0, x, y).map(|(swatch, coverage)| (swatch, coverage > 32768));
+    assert_eq!((swatch(200, 170), swatch(200, 203), swatch(300, 202)), (Some((3, true)), Some((0, false)), Some((0, false))), "inside, and no line round it");
+}
+
+#[test]
 fn a_shape_is_drawn_with_a_brush_as_one_stroke() {
     let mut s = Session::new();
     let e = swatch_layer(&mut s);
@@ -5430,7 +5486,7 @@ fn a_shape_is_drawn_with_a_brush_as_one_stroke() {
     nowhere["to"] = json!([f64::NAN, 0]);
     assert!(s.execute("drawing.shape", nowhere).is_err());
     assert!(matches!(
-        s.execute("drawing.shape", json!({ "layer": e, "frame": 0, "shape": "star", "from": [0, 0], "to": [1, 1] })),
+        s.execute("drawing.shape", json!({ "layer": e, "frame": 0, "shape": "heart", "from": [0, 0], "to": [1, 1] })),
         Err(EngineError::BadParams { .. })
     ));
 }
@@ -6203,6 +6259,71 @@ fn a_surface_stroke_leaves_an_area_merged_with_those_of_its_swatch() {
     assert!(s.undo());
     assert_eq!(shapes(&s), vec![(1, true)]);
     assert_eq!(line_pixel(&s, e, 0, 200, 140), Some((0, 0)));
+}
+
+#[test]
+fn the_scatter_brush_sprays_copies_of_a_preset_or_of_the_clipboard() {
+    use iskra_model::{ArtContent, ArtLayerKind, LayerId};
+    let mut s = Session::new();
+    let e = layer(&s);
+    s.execute("layer.setArtMode", json!({ "layer": e, "artLayer": "lineArt", "mode": "vector" })).unwrap();
+    let path: Vec<[f64; 2]> = (0..=20).map(|i| [100.0 + f64::from(i) * 10.0, 100.0]).collect();
+    let swatches = |s: &Session| {
+        let drawing = &s.project().layer(LayerId(e)).unwrap().drawing_at(0).unwrap().drawing;
+        let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!("vector line art") };
+        art.shapes().iter().map(|shape| shape.swatch.0).collect::<Vec<_>>()
+    };
+    // Dots 20 across, 50 apart, along 200 pixels: five, in the swatch, in one step.
+    let dots = json!({ "layer": e, "frame": 0, "swatch": 3, "points": path, "scatter": { "preset": "dots", "minSize": 20, "maxSize": 20, "spacing": 50 } });
+    let steps = s.history().entries().len();
+    assert_eq!(s.execute("drawing.scatter", dots.clone()).unwrap()["copies"], json!(5));
+    assert_eq!((swatches(&s), s.history().entries().len(), s.history().undo_label()), (vec![3; 5], steps + 1, Some("Scatter")));
+    assert_eq!(line_pixel(&s, e, 0, 150, 100).map(|(swatch, _)| swatch), Some(3));
+    assert_eq!(line_pixel(&s, e, 0, 175, 100), Some((0, 0)), "nothing between them");
+    // From the clipboard: refused while it is empty; once a dot is copied, copies of it in its
+    // own swatch, whatever swatch is in hand.
+    let mut clipped = dots.clone();
+    clipped["scatter"]["preset"] = json!("clipboard");
+    assert!(matches!(s.execute("drawing.scatter", clipped.clone()), Err(EngineError::Invalid(_))));
+    assert_eq!(s.execute("drawing.copy", json!({ "layer": e, "frame": 0, "rect": [130, 80, 170, 120] })).unwrap()["copied"], json!(true));
+    clipped["swatch"] = json!(4);
+    s.execute("drawing.scatter", clipped).unwrap();
+    assert_eq!(swatches(&s), vec![3; 10]);
+    // Not on pixels, nor along nowhere.
+    let mut nowhere = dots;
+    nowhere["points"] = json!([]);
+    assert!(matches!(s.execute("drawing.scatter", nowhere), Err(EngineError::Invalid(_))));
+}
+
+#[test]
+fn a_surface_drawn_behind_merges_with_its_swatch_under_the_rest() {
+    use iskra_model::{ArtContent, ArtLayerKind, LayerId};
+    let mut s = Session::new();
+    let e = layer(&s);
+    s.execute("layer.setArtMode", json!({ "layer": e, "artLayer": "lineArt", "mode": "vector" })).unwrap();
+    let even = json!({ "size": 12, "pressureSize": false, "smoothing": 0 });
+    let draw = |s: &mut Session, swatch: u16, from: [i32; 2], to: [i32; 2], mode: &str| {
+        let points: Vec<Value> = (0..=20).map(|i| json!({ "x": from[0] + (to[0] - from[0]) * i / 20, "y": from[1] + (to[1] - from[1]) * i / 20 })).collect();
+        let params = json!({ "layer": e, "frame": 0, "swatch": swatch, "points": points, "brush": even, "surface": true, "mode": mode });
+        s.execute("drawing.vectorStroke", params).unwrap();
+    };
+    let swatches = |s: &Session| {
+        let drawing = &s.project().layer(LayerId(e)).unwrap().drawing_at(0).unwrap().drawing;
+        let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!("vector line art") };
+        art.shapes().iter().map(|shape| shape.swatch.0).collect::<Vec<_>>()
+    };
+    draw(&mut s, 1, [100, 100], [300, 100], "over");
+    draw(&mut s, 4, [200, 50], [200, 150], "over");
+    assert_eq!(swatches(&s), vec![1, 4]);
+    // Behind, across both: one area with the first, of its swatch, and under the other.
+    draw(&mut s, 1, [150, 50], [150, 150], "behind");
+    assert_eq!(swatches(&s), vec![1, 4]);
+    assert_eq!(line_pixel(&s, e, 0, 150, 140).map(|(swatch, _)| swatch), Some(1));
+    assert_eq!(line_pixel(&s, e, 0, 200, 100).map(|(swatch, _)| swatch), Some(4), "the other swatch stays on top");
+    // Behind, of a swatch no shape has: under them all, alone.
+    draw(&mut s, 5, [250, 50], [250, 150], "behind");
+    assert_eq!(swatches(&s), vec![5, 1, 4]);
+    assert_eq!(line_pixel(&s, e, 0, 250, 100).map(|(swatch, _)| swatch), Some(1));
 }
 
 #[test]
@@ -7508,4 +7629,35 @@ fn a_retake_note_on_frame_42_is_kept_in_the_file_and_goes_out_and_back_with_its_
     s.execute("shot.bringBack", json!({ "path": file })).unwrap();
     let back: Vec<(&str, bool)> = s.project().shots[0].notes.iter().map(|n| (n.text.as_str(), n.done)).collect();
     assert_eq!(back, [("Too slow, still", true), ("Fixed the feet too", false), ("Meanwhile", false), ("The arm pops here", true)]);
+}
+
+#[test]
+fn a_brush_stamping_a_tip_draws_a_line_of_its_stamps_never_flattened() {
+    use iskra_model::{ArtContent, ArtLayerKind, LayerId, ShapeKind};
+    let mut s = Session::new();
+    let e = layer(&s);
+    s.execute("layer.setArtMode", json!({ "layer": e, "artLayer": "lineArt", "mode": "vector" })).unwrap();
+    // The engine's Splatter, as the app sends a brush: its tip with it.
+    let splatter = iskra_drawing::builtin_brushes().iter().find(|preset| preset.name == "Splatter").unwrap();
+    let iskra_drawing::Brush::Vector(brush) = &splatter.brush else { panic!("a vector brush") };
+    let brush = serde_json::to_value(iskra_drawing::VectorBrush { seed: 9, smoothing: 0.0, ..brush.clone() }).unwrap();
+    let points: Vec<Value> = (0..=20).map(|i| json!({ "x": 100 + 10 * i, "y": 100, "pressure": 1.0 })).collect();
+    for _ in 0..2 {
+        s.execute("drawing.vectorStroke", json!({ "layer": e, "frame": 0, "swatch": 1, "points": points, "brush": brush, "flatten": true })).unwrap();
+    }
+    let drawing = &s.project().layer(LayerId(e)).unwrap().drawing_at(0).unwrap().drawing;
+    let ArtContent::Vector(art) = &drawing.layer(ArtLayerKind::LineArt).unwrap().content else { panic!("vector line art") };
+    assert_eq!(art.shapes().len(), 2, "two lines, not one fill");
+    let ShapeKind::Stroke(stroke) = &art.shapes()[0].kind else { panic!("a stroke") };
+    let stamp = stroke.stamp.as_ref().expect("stamped");
+    assert!(iskra_drawing::tip(&stamp.tip).is_some() && art.tips().len() == 1);
+    // Its stamps' grain: along the line much is partly covered.
+    let row: Vec<u16> = (100..300).map(|x| line_pixel(&s, e, 0, x, 100).map_or(0, |(_, coverage)| coverage)).collect();
+    assert!(row.iter().filter(|c| **c > 3000 && **c < 62000).count() > 20, "{row:?}");
+    // A spacing that is not a number is refused.
+    let refused = s.execute(
+        "drawing.vectorStroke",
+        json!({ "layer": e, "frame": 0, "swatch": 1, "points": points, "brush": { "size": 4, "stamp": { "enabled": true, "spacing": "wide" } } }),
+    );
+    assert!(refused.is_err());
 }

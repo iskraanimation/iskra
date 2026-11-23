@@ -527,9 +527,19 @@ pub const VECTOR_GROUP: &str = "Vector";
 /// The group of the engine's vector brushes made for surfaces.
 pub const SURFACE_GROUP: &str = "Vector Surface";
 
+/// The group of the engine's vector brushes that stamp a picture's tip along their lines.
+pub const STAMP_GROUP: &str = "Vector Stamp";
+
 /// The engine's vector brushes.
 fn vector_builtin() -> Vec<BrushPreset> {
     let base = VectorBrush::default();
+    // A picture's tip stamped along the line, as Moho's brushes are (the user's of 2026-11-23).
+    let stamped = |name: &str, tip: &str, brush: VectorBrush, stamp: crate::StampBrush| {
+        let tip = crate::stamp::builtin_tip(tip).map_or(TipShape::Round, TipShape::Sampled);
+        let stamp = crate::StampBrush { enabled: true, tip, ..stamp };
+        BrushPreset { name: name.to_string(), group: STAMP_GROUP.to_string(), brush: Brush::Vector(VectorBrush { stamp, ..brush }) }
+    };
+    let stamp = crate::StampBrush::default();
     let vector = |name: &str, brush: VectorBrush| BrushPreset { name: name.to_string(), group: VECTOR_GROUP.to_string(), brush: Brush::Vector(brush) };
     let surface = |name: &str, brush: VectorBrush| BrushPreset { name: name.to_string(), group: SURFACE_GROUP.to_string(), brush: Brush::Vector(brush) };
     vec![
@@ -550,31 +560,36 @@ fn vector_builtin() -> Vec<BrushPreset> {
         surface("Ink Brush", VectorBrush { size: 12.0, thinnest: 0.0, taper_start: 3.0, taper_end: 6.0, ..base.clone() }),
         surface("Detail Brush", VectorBrush { size: 5.0, thinnest: 0.3, ..base.clone() }),
         surface("Block-In", VectorBrush { size: 60.0, pressure_size: false, smoothing: 0.3, ..base.clone() }),
-        // Rough edges, as of ink bled into paper and of a crayon's grain.
-        surface("Rough Ink", VectorBrush { size: 12.0, thinnest: 0.05, taper_start: 2.0, taper_end: 4.0, roughness: 0.35, bumps: 0.3, ..base.clone() }),
-        surface("Crayon", VectorBrush { size: 14.0, thinnest: 0.5, smoothing: 0.2, roughness: 0.55, bumps: 0.12, ..base.clone() }),
-        // Strands that break up as the paint runs out.
-        surface("Dry Brush", VectorBrush { size: 30.0, thinnest: 0.3, roughness: 0.15, bumps: 0.2, bristles: 8, dryness: 0.6, ..base.clone() }),
-        // Holes, more with a lighter touch.
-        surface(
-            "Chalk",
-            VectorBrush { size: 20.0, thinnest: 0.4, angle: 30.0, roundness: 0.5, roughness: 0.3, bumps: 0.15, holes: 0.4, hole_size: 0.08, ..base.clone() },
-        ),
-        surface("Sponge", VectorBrush { size: 48.0, pressure_size: false, roughness: 0.4, bumps: 0.3, holes: 0.75, hole_size: 0.1, ..base.clone() }),
         // Faint with a light touch and at its ends, as a wash is: strokes build up.
-        surface(
-            "Wash",
-            VectorBrush {
-                size: 36.0,
-                thinnest: 0.5,
-                pressure_opacity: true,
-                faintest: 0.05,
-                fade_start: 1.0,
-                fade_end: 3.0,
-                roughness: 0.2,
-                bumps: 0.6,
-                ..base
-            },
+        surface("Wash", VectorBrush { size: 36.0, thinnest: 0.5, pressure_opacity: true, faintest: 0.05, fade_start: 1.0, fade_end: 3.0, ..base.clone() }),
+        // Spray and splatter, each stamp turned any way.
+        stamped(
+            "Splatter",
+            "blob-01",
+            VectorBrush { size: 32.0, thinnest: 0.4, ..base.clone() },
+            crate::StampBrush { spacing: 0.2, jitter: 180.0, ..stamp.clone() },
+        ),
+        // Hatched grain, each stamp turned a good way: close stamps along the line, or turned
+        // alike, fill one another's gaps and the grain goes.
+        stamped(
+            "Crayon Hatch",
+            "blob-02",
+            VectorBrush { size: 30.0, thinnest: 0.5, ..base.clone() },
+            crate::StampBrush { spacing: 0.3, jitter: 90.0, ..stamp.clone() },
+        ),
+        // A broad, dry band.
+        stamped(
+            "Dry Roller",
+            "blob-03",
+            VectorBrush { size: 36.0, pressure_size: false, ..base.clone() },
+            crate::StampBrush { spacing: 0.35, jitter: 180.0, ..stamp.clone() },
+        ),
+        // Blots that build up where they overlap, as ink does.
+        stamped(
+            "Ink Blots",
+            "blob-04",
+            VectorBrush { size: 26.0, thinnest: 0.3, ..base },
+            crate::StampBrush { spacing: 0.35, jitter: 180.0, build_up: true, ..stamp },
         ),
     ]
 }
@@ -666,15 +681,7 @@ fn vector_picture(brush: &VectorBrush, width: u32, height: u32) -> Vec<u8> {
     let brush = VectorBrush { size: brush.size.min(height as f32 * 0.45), smoothing: 0.0, simplify: 0.25, ..brush.clone() };
     let points = picture_points(width, height, f64::from(brush.size) / 2.0 + 2.0);
     let Some(stroke) = crate::vector_stroke(&points, &brush) else { return vec![0; width as usize * height as usize] };
-    // A rough, dry or holed brush is shown as the surface it leaves, which alone has its edge,
-    // its strands and its holes.
-    let kind = match brush.roughness > 0.0 || brush.bristles >= 2 || brush.holes > 0.0 {
-        true => {
-            let tracks = if stroke.marks() { vec![stroke.clone()] } else { Vec::new() };
-            crate::ShapeKind::Fill(crate::VectorFill { tracks, boil: stroke.boil, ..crate::VectorFill::plain(crate::surface(&stroke, &brush)) })
-        }
-        false => crate::ShapeKind::Stroke(stroke),
-    };
+    let kind = crate::ShapeKind::Stroke(stroke);
     let art = crate::VectorArt::new(vec![crate::VectorShape { id: crate::ShapeId(1), swatch: crate::SwatchId(1), kind }]);
     let pixels = art.raster().pixels(Rect::new(0, 0, width as i32, height as i32));
     pixels.into_iter().map(|pixel| (u32::from(pixel.coverage) * 255 / 65535) as u8).collect()

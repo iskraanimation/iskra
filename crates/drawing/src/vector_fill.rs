@@ -16,8 +16,10 @@
 //! **Surfaces bound areas too** (the user's of 2026-11-04): a fill of its own outline on the
 //! line art or the overart, as the Brush set to leave surfaces makes, is an edge of the map by
 //! its outline, and its inside is the line, which the bucket is not poured into. A fill a
-//! surface bounds reaches a pixel under it, so no seam shows at its edge. A fill on the colour
-//! art bounds nothing: it is colour, not a line.
+//! surface bounds reaches a pixel under it, so no seam shows at its edge. Surfaces on the colour
+//! art bound areas as well (the user's of 2026-11-23: "enable fill on any layer"), and a click on
+//! a line or a surface of the art layer filled gives it the swatch; a fill the bucket made, which
+//! is between lines, bounds nothing.
 
 use std::collections::HashSet;
 
@@ -52,9 +54,10 @@ struct Line {
     surface: bool,
 }
 
-/// Whether `shape`, on the art layer `art`, is a surface that bounds areas as a line does.
-fn is_surface(art: ArtLayerKind, shape: &VectorShape) -> bool {
-    art != ArtLayerKind::ColourArt && matches!(&shape.kind, ShapeKind::Fill(fill) if !fill.between_lines())
+/// Whether `shape`, on the art layer `art`, is a surface that bounds areas as a line does: a fill
+/// of its own outline, on any art layer.
+fn is_surface(_art: ArtLayerKind, shape: &VectorShape) -> bool {
+    matches!(&shape.kind, ShapeKind::Fill(fill) if !fill.between_lines())
 }
 
 /// Whether `shape` on the art layer `art` is an edge of the planar map: a stroke or a surface.
@@ -283,16 +286,19 @@ fn bounds_of(face: &BezPath, lines: &[(Bound, Line)]) -> Vec<Bound> {
     bounds
 }
 
-/// Whether `at` is on one of `lines`: within half its widest of its middle line. Measured, not
-/// drawn, so that a drag over many places looks quickly.
+/// Whether `at` is on `line`: inside a surface, or within half a stroke's widest of its middle
+/// line. Measured, not drawn, so that a drag over many places looks quickly.
+fn is_on(line: &Line, at: Point) -> bool {
+    if line.surface {
+        return line.path.bounding_box().contains(at) && line.path.winding(at) != 0;
+    }
+    let reach = line.path.bounding_box().inflate(line.half, line.half);
+    reach.contains(at) && line.path.segments().any(|segment| segment.nearest(at, 1e-3).distance_sq <= line.half * line.half)
+}
+
+/// Whether `at` is on one of `lines`.
 fn on_line(lines: &[(Bound, Line)], at: Point) -> bool {
-    lines.iter().any(|(_, line)| {
-        if line.surface {
-            return line.path.bounding_box().contains(at) && line.path.winding(at) != 0;
-        }
-        let reach = line.path.bounding_box().inflate(line.half, line.half);
-        reach.contains(at) && line.path.segments().any(|segment| segment.nearest(at, 1e-3).distance_sq <= line.half * line.half)
-    })
+    lines.iter().any(|(_, line)| is_on(line, at))
 }
 
 /// The outline of a fill of `face`, which `bounds` bound: the face, reaching a pixel further
@@ -393,7 +399,19 @@ impl VectorBucket {
     pub fn fill(&mut self, at: Point) -> bool {
         let (swatch, gap) = (self.swatch, self.gap);
         if on_line(&self.lines, at) {
-            self.refused.get_or_insert(FillError::OnLine);
+            // On a line or a surface of the art layer filled, the topmost there takes the swatch.
+            let own = self.lines.iter().rev().find(|(bound, line)| bound.art == self.art && is_on(line, at)).map(|(bound, _)| bound.shape);
+            let index = own.and_then(|own| self.shapes.iter().position(|shape| shape.id == own));
+            match index {
+                Some(index) if swatch != SwatchId::NONE && !self.protected.contains(&self.shapes[index].swatch) => {
+                    let changed = self.shapes[index].swatch != swatch;
+                    self.shapes[index].swatch = swatch;
+                    (self.filled, self.changed) = (self.filled + 1, self.changed | changed);
+                    return changed;
+                }
+                Some(index) if self.protected.contains(&self.shapes[index].swatch) => _ = self.refused.get_or_insert(FillError::Protected),
+                _ => _ = self.refused.get_or_insert(FillError::OnLine),
+            }
             return false;
         }
         let lines = &self.lines;
@@ -708,12 +726,22 @@ mod tests {
         assert!(!fill.open && painted(&drawing, 140, 50) == 2, "the fill went with the surface");
         // The bucket on the line art gives a surface the swatch, as it does a line.
         assert_eq!(recolour_vector_line(&mut drawing, ArtLayerKind::LineArt, Point::new(50.0, 1.0), SwatchId(5), &[]), Ok(true));
-        // A surface on the colour art is colour: it bounds nothing.
+        // A ring drawn as a surface on the colour art bounds a fill too (the user's of
+        // 2026-11-23), and a click on the ring gives it the swatch.
         let mut colour_only = drawing_of(&[]);
-        let blob =
-            VectorShape { id: ShapeId(9), swatch: SwatchId(3), kind: ShapeKind::Fill(VectorFill::plain(kurbo::Circle::new((50.0, 50.0), 20.0).to_path(0.1))) };
+        let ring = kurbo::Circle::new((50.0, 50.0), 30.0).to_path(0.1);
+        let mut hole = kurbo::Circle::new((50.0, 50.0), 20.0).to_path(0.1);
+        hole.apply_affine(kurbo::Affine::FLIP_X.then_translate((100.0, 0.0).into()));
+        let mut outline = ring;
+        outline.extend(hole);
+        let blob = VectorShape { id: ShapeId(9), swatch: SwatchId(3), kind: ShapeKind::Fill(VectorFill::plain(outline)) };
         colour_only.layer_mut(ArtLayerKind::ColourArt).unwrap().content = ArtContent::Vector(VectorArt::new(vec![blob]));
-        assert!(super::lines(&colour_only).is_empty());
+        assert_eq!(super::lines(&colour_only).len(), 1);
+        assert_eq!(fill_vector(&mut colour_only, ArtLayerKind::ColourArt, Point::new(50.0, 50.0), SwatchId(2), 0.0, &[]), Ok(true));
+        assert_eq!(colour(&colour_only).shapes().len(), 2, "a fill inside the ring");
+        assert_eq!(fill_vector(&mut colour_only, ArtLayerKind::ColourArt, Point::new(50.0, 25.0), SwatchId(4), 0.0, &[]), Ok(true));
+        assert!(colour(&colour_only).shapes().iter().any(|shape| shape.id == ShapeId(9) && shape.swatch == SwatchId(4)), "the ring recoloured");
+        assert_eq!(fill_vector(&mut colour_only, ArtLayerKind::ColourArt, Point::new(50.0, 25.0), SwatchId(4), 0.0, &[SwatchId(4)]), Err(FillError::Protected));
     }
 
     #[test]
@@ -744,16 +772,16 @@ mod tests {
     }
 
     #[test]
-    fn surfaces_full_of_holes_still_bound_the_fill_they_close() {
+    fn surfaces_drawn_with_a_brush_bound_the_fill_they_close() {
         let mut drawing = surfaces_of(&square(0.0));
-        let chalk = crate::VectorBrush { size: 10.0, simplify: 0.1, holes: 0.6, hole_size: 0.2, ..Default::default() };
+        let brush = crate::VectorBrush { size: 10.0, simplify: 0.1, ..Default::default() };
         let Some(ArtContent::Vector(art)) = drawing.layer(ArtLayerKind::LineArt).map(|l| l.content.clone()) else { panic!() };
-        let holed = art.edited(|shapes| {
+        let surfaced = art.edited(|shapes| {
             for (shape, side) in shapes.iter_mut().zip(square(0.0)) {
-                shape.kind = ShapeKind::Fill(VectorFill::plain(crate::surface(&VectorStroke::even(side, 10.0), &chalk)));
+                shape.kind = ShapeKind::Fill(VectorFill::plain(crate::surface(&VectorStroke::even(side, 10.0), &brush)));
             }
         });
-        drawing.layer_mut(ArtLayerKind::LineArt).unwrap().content = ArtContent::Vector(holed);
+        drawing.layer_mut(ArtLayerKind::LineArt).unwrap().content = ArtContent::Vector(surfaced);
         let started = std::time::Instant::now();
         assert_eq!(fill_vector(&mut drawing, ArtLayerKind::ColourArt, Point::new(50.0, 50.0), SwatchId(2), 0.0, &[]), Ok(true));
         assert_eq!(fill_vector(&mut drawing.clone(), ArtLayerKind::ColourArt, Point::new(50.0, 50.0), SwatchId(2), 6.0, &[]), Ok(true));

@@ -610,22 +610,7 @@ impl BrushesPanel {
         let wanted = Brush::Raster(brush.clone());
         if self.trial.as_ref().is_none_or(|trial| trial.brush != wanted) {
             let stroke = ui.ctx().load_texture("brush trial", picture(&wanted), TextureOptions::LINEAR);
-            let tip = match &brush.tip {
-                TipShape::Sampled(tile) if tile.width > 0 && tile.height > 0 => {
-                    let mut image = egui::ColorImage::filled([TIP_SIDE, TIP_SIDE], Color32::TRANSPARENT);
-                    // The tip keeps its proportions, in the middle of the square.
-                    let side = tile.width.max(tile.height) as usize;
-                    let (left, top) = ((side - tile.width as usize) / 2, (side - tile.height as usize) / 2);
-                    for (index, pixel) in image.pixels.iter_mut().enumerate() {
-                        let (x, y) = ((index % TIP_SIDE * side / TIP_SIDE).checked_sub(left), (index / TIP_SIDE * side / TIP_SIDE).checked_sub(top));
-                        if let (Some(x), Some(y)) = (x.filter(|x| *x < tile.width as usize), y.filter(|y| *y < tile.height as usize)) {
-                            *pixel = Color32::from_white_alpha((tile.get(x as u32, y as u32) * 255.0) as u8);
-                        }
-                    }
-                    Some(ui.ctx().load_texture("brush tip", image, TextureOptions::LINEAR))
-                }
-                _ => None,
-            };
+            let tip = tip_texture(ui.ctx(), &brush.tip);
             self.trial = Some(Trial { brush: wanted, stroke, tip });
             #[cfg(test)]
             {
@@ -797,7 +782,8 @@ impl BrushesPanel {
         let wanted = Brush::Vector(brush.clone());
         if self.trial.as_ref().is_none_or(|trial| trial.brush != wanted) {
             let stroke = ui.ctx().load_texture("brush trial", picture(&wanted), TextureOptions::LINEAR);
-            self.trial = Some(Trial { brush: wanted, stroke, tip: None });
+            let tip = tip_texture(ui.ctx(), &brush.stamp.tip);
+            self.trial = Some(Trial { brush: wanted, stroke, tip });
             #[cfg(test)]
             {
                 self.trials += 1;
@@ -807,7 +793,9 @@ impl BrushesPanel {
         let width = ui.available_width().min(PICTURE[0] as f32 / 2.0);
         let (area, _) = ui.allocate_exact_size(vec2(width, width * PICTURE[1] as f32 / PICTURE[0] as f32), Sense::hover());
         ui.painter().image(trial.stroke.id(), area, WHOLE, theme.text);
+        let tip = trial.tip.as_ref().map(TextureHandle::id);
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            self.stamp_section(ui, &mut brush.stamp, tip);
             egui::CollapsingHeader::new("Width").default_open(true).show(ui, |ui| {
                 ui.add(egui::Slider::new(&mut brush.size, 1.0..=MAX_SIZE).logarithmic(true).text("Size"));
                 ui.checkbox(&mut brush.pressure_size, "Pressure").on_hover_text("The width follows the pen's pressure");
@@ -872,35 +860,48 @@ impl BrushesPanel {
                 let hint = "How far the kept line may stray from the pen, in pixels of the screen: more keeps fewer points, and smoother curves";
                 ui.add(egui::Slider::new(&mut brush.simplify, 0.05..=5.0).logarithmic(true).text("Simplify")).on_hover_text(hint);
             });
-            egui::CollapsingHeader::new("Edge").default_open(true).show(ui, |ui| {
-                let hint = "How far the edge of a surface goes in and out, of half its width: a rough edge, as of ink on paper or a crayon. \
-                            The Brush set to leave surfaces makes it; lines keep a smooth edge";
-                percent(ui, &mut brush.roughness, 0.0, 0.9, "Roughness").on_hover_text(hint);
-                ui.add_enabled_ui(brush.roughness > 0.0, |ui| {
-                    let hint = "How long a bump of the rough edge is, in widths of the brush: less is a finer grain";
-                    ui.add(egui::Slider::new(&mut brush.bumps, 0.05..=4.0).logarithmic(true).text("Bumps")).on_hover_text(hint);
-                });
+            // A stamped tip takes the place of the texture and the second tip.
+            let stamps = brush.stamp.stamps();
+            ui.add_enabled_ui(!stamps, |ui| {
+                self.texture_section(ui, &mut brush.texture, false);
+                dual_section(ui, &mut brush.dual_brush);
+            })
+            .response
+            .on_disabled_hover_text("Not used while the line is drawn by a stamped tip");
+        });
+    }
+
+    /// The settings of a vector brush's stamped tip (the user's of 2026-11-23, as Moho's
+    /// brushes are): a picture stamped along the line, which draws it.
+    fn stamp_section(&mut self, ui: &mut egui::Ui, stamp: &mut iskra_drawing::StampBrush, tip: Option<egui::TextureId>) {
+        let theme = Theme::of(ui.ctx());
+        section(ui, "Stamped Tip", &mut stamp.enabled, |ui| {
+            ui.weak("A picture stamped along the line, as wide as the line, in its swatch. It draws the line in place of its edge.");
+            ui.horizontal(|ui| {
+                if let (Some(tile), Some(tip)) = (stamp.tip.bitmap(), tip) {
+                    let (area, _) = ui.allocate_exact_size(vec2(TIP_SIDE as f32, TIP_SIDE as f32), Sense::hover());
+                    ui.painter().image(tip, area, WHOLE, theme.text);
+                    ui.weak(format!("{} × {} pixels", tile.width, tile.height));
+                } else {
+                    ui.weak("No picture yet: choose one.");
+                }
             });
-            egui::CollapsingHeader::new("Bristles").default_open(true).show(ui, |ui| {
-                let hint = "A dry brush: a surface made of this many strands side by side, which break up where the paint runs out. \
-                            Fewer than 2 is a brush full of paint. The Brush set to leave surfaces makes it; lines are one";
-                ui.add(egui::Slider::new(&mut brush.bristles, 0..=16).text("Bristles")).on_hover_text(hint);
-                ui.add_enabled_ui(brush.bristles >= 2, |ui| {
-                    let hint = "How soon the strands break up: as the stroke goes on, and where it is thinner, as with a lighter touch";
-                    percent(ui, &mut brush.dryness, 0.0, 1.0, "Dryness").on_hover_text(hint);
-                });
-            });
-            egui::CollapsingHeader::new("Holes").default_open(true).show(ui, |ui| {
-                let hint = "How much of a surface is small holes, as chalk or a sponge leaves on paper: more where the stroke is thinner. \
-                            The Brush set to leave surfaces makes them; lines have none";
-                percent(ui, &mut brush.holes, 0.0, 1.0, "Holes").on_hover_text(hint);
-                ui.add_enabled_ui(brush.holes > 0.0, |ui| {
-                    let hint = "How wide a hole is, in widths of the brush";
-                    ui.add(egui::Slider::new(&mut brush.hole_size, 0.02..=0.5).logarithmic(true).text("Hole Size")).on_hover_text(hint);
-                });
-            });
-            self.texture_section(ui, &mut brush.texture, false);
-            dual_section(ui, &mut brush.dual_brush);
+            let hint = "The tip takes the shape of a picture: what is dark and solid in it paints, white and what is see-through does not. \
+                        PNG, JPEG, WebP and other pictures; a larger one is made 512 pixels a side";
+            if ui.button("Tip from a Picture…").on_hover_text(hint).clicked()
+                && let Some(tile) = self.tile_from_picture(true)
+            {
+                stamp.tip = TipShape::Sampled(iskra_drawing::stamp_tip(tile));
+            }
+            let hint = "How far apart the stamps are, of the line's width there. Close stamps fill each other's gaps";
+            percent(ui, &mut stamp.spacing, 0.02, 4.0, "Spacing").on_hover_text(hint);
+            ui.checkbox(&mut stamp.align, "Turned with the Line").on_hover_text("Each stamp turns as the line does");
+            let hint = "Each stamp turned by chance, up to this far either way";
+            ui.add(egui::Slider::new(&mut stamp.jitter, 0.0..=180.0).suffix("°").text("Angle Jitter")).on_hover_text(hint);
+            let hint = "The stamps' angle wanders along the line, up to this far either way: marks with a direction lean one way, then another";
+            ui.add(egui::Slider::new(&mut stamp.drift, 0.0..=180.0).suffix("°").text("Angle Drift")).on_hover_text(hint);
+            let hint = "The stamps build up where they overlap, as paint does. Off: the line is as dense as its densest stamp there";
+            ui.checkbox(&mut stamp.build_up, "Build Up").on_hover_text(hint);
         });
     }
 
@@ -969,6 +970,22 @@ impl BrushesPanel {
             }
         }
     }
+}
+
+/// A picture of a sampled tip, white in the middle of a square, its proportions kept; `None`
+/// for a round tip.
+fn tip_texture(ctx: &egui::Context, tip: &TipShape) -> Option<TextureHandle> {
+    let tile = tip.bitmap().filter(|tile| tile.width > 0 && tile.height > 0)?;
+    let mut image = egui::ColorImage::filled([TIP_SIDE, TIP_SIDE], Color32::TRANSPARENT);
+    let side = tile.width.max(tile.height) as usize;
+    let (left, top) = ((side - tile.width as usize) / 2, (side - tile.height as usize) / 2);
+    for (index, pixel) in image.pixels.iter_mut().enumerate() {
+        let (x, y) = ((index % TIP_SIDE * side / TIP_SIDE).checked_sub(left), (index / TIP_SIDE * side / TIP_SIDE).checked_sub(top));
+        if let (Some(x), Some(y)) = (x.filter(|x| *x < tile.width as usize), y.filter(|y| *y < tile.height as usize)) {
+            *pixel = Color32::from_white_alpha((tile.get(x as u32, y as u32) * 255.0) as u8);
+        }
+    }
+    Some(ctx.load_texture("brush tip", image, TextureOptions::LINEAR))
 }
 
 /// The settings of a brush's second tip.

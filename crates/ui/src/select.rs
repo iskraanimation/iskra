@@ -218,10 +218,26 @@ impl Drag {
             .layers
             .iter()
             .map(|layer| {
-                layer.as_ref().map(|(rest, lifted)| {
-                    let mut shown = rest.clone();
-                    shown.stamp(&lifted.transformed(&matrix));
-                    shown
+                layer.as_ref().map(|(rest, lifted)| match (rest, lifted) {
+                    // Vector art moved, or with stamped lines, is shown as the pixels its shapes
+                    // made, moved: making them anew at each move of the pointer stamps every
+                    // stamped line again (the user's of 2026-11-23). A move is seen by whole
+                    // pixels; the engine moves the shapes exactly when let go.
+                    (ArtContent::Vector(rest), ArtContent::Vector(lifted)) if matrix.m[..4] == [1.0, 0.0, 0.0, 1.0] || !lifted.tips().is_empty() => {
+                        let [.., e, f] = matrix.m;
+                        let moved = match matrix.m[..4] == [1.0, 0.0, 0.0, 1.0] {
+                            true => lifted.raster().translated(e.round() as i32, f.round() as i32),
+                            false => lifted.raster().transformed(&matrix),
+                        };
+                        let mut shown = rest.raster().clone();
+                        shown.stamp(&moved);
+                        ArtContent::Indexed(shown)
+                    }
+                    _ => {
+                        let mut shown = rest.clone();
+                        shown.stamp(&lifted.transformed(&matrix));
+                        shown
+                    }
                 })
             })
             .collect();
@@ -328,5 +344,31 @@ mod tests {
         let less = more.with(Lasso::of_rect(Rect::new(0, 0, 2, 2)).unwrap(), true).expect("something is left");
         let held = |x| LassoPart::inside(&less.parts, x, 0);
         assert_eq!((more.rect, less.parts.len(), held(1), held(5), held(12), held(16)), (Rect::new(0, 0, 18, 2), 3, false, true, false, true));
+    }
+
+    #[test]
+    fn a_drag_of_vector_art_previews_the_pixels_its_shapes_made_moved() {
+        use iskra_drawing::{ShapeId, ShapeKind, VectorArt, VectorShape, VectorStroke, kurbo::BezPath};
+        let mut drawing = Drawing::default();
+        let line = |y: f64| {
+            let mut path = BezPath::new();
+            path.move_to((10.0, y));
+            path.line_to((90.0, y));
+            path
+        };
+        let shapes = [(1, 20.0), (2, 60.0)].map(|(id, y)| VectorShape {
+            id: ShapeId(id),
+            swatch: SwatchId(1),
+            kind: ShapeKind::Stroke(VectorStroke::even(line(y), 6.0)),
+        });
+        let art = VectorArt::new(shapes.to_vec());
+        drawing.layer_mut(ArtLayerKind::LineArt).unwrap().content = ArtContent::Vector(art.clone());
+        // The upper line taken, moved down by 10.
+        let rect = Rect::new(0, 10, 100, 30);
+        let mut drag = Drag::new(Handle::Move, Point::new(50.0, 20.0), &drawing, &Picked::all(rect), iskra_model::ArtReach::All, false);
+        drag.update(rect, Point::new(50.0, 30.0));
+        let shown = drag.preview[1].as_ref().map(indexed).expect("shown as pixels");
+        let full = art.raster().pixel(50, 20).coverage;
+        assert_eq!((shown.pixel(50, 20).coverage, shown.pixel(50, 30).coverage, shown.pixel(50, 60).coverage), (0, full, full));
     }
 }

@@ -72,6 +72,10 @@ pub struct VectorStroke {
     /// How it boils, drawn anew from frame to frame; `None` where it is still.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boil: Option<Boil>,
+    /// A picture's tip stamped along it, which draws it in place of its outline (the user's of
+    /// 2026-11-23, as Moho's brushes do); `None` for a plain line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<Box<crate::Stamp>>,
 }
 
 /// How a shape boils (the user's of 2026-11-04), as hand-drawn lines shimmer from one drawing
@@ -246,34 +250,6 @@ impl VectorFill {
     }
 }
 
-/// How rough the edge of a surface is (the user's of 2026-11-04): how far it goes in and out,
-/// as a part of the stroke's half width there, how long a bump is along it in pixels, and the
-/// chance the bumps are laid out by.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Rough {
-    pub amount: f64,
-    pub bump: f64,
-    pub seed: u64,
-}
-
-/// `samples` with more put between them, none further apart than `step`, the radius going
-/// evenly between them. At most some tens of thousands.
-pub(crate) fn denser(samples: &[(kurbo::Point, f64)], step: f64) -> Vec<(kurbo::Point, f64)> {
-    let total: f64 = samples.windows(2).map(|pair| pair[0].0.distance(pair[1].0)).sum();
-    let step = step.max(total / 40_000.0);
-    let mut out = Vec::with_capacity(samples.len());
-    out.extend(samples.first().copied());
-    for pair in samples.windows(2) {
-        let ((from, a), (to, b)) = (pair[0], pair[1]);
-        let count = (from.distance(to) / step).ceil().max(1.0) as usize;
-        for n in 1..=count {
-            let t = n as f64 / count as f64;
-            out.push((from.lerp(to, t), a + (b - a) * t));
-        }
-    }
-    out
-}
-
 /// A number from -1 to 1 at each place on a plane, going smoothly from one to the next a unit
 /// apart: the same for the same place and `seed`.
 pub(crate) fn noise2(x: f64, y: f64, seed: u64) -> f64 {
@@ -293,27 +269,6 @@ pub(crate) fn noise2(x: f64, y: f64, seed: u64) -> f64 {
     let top = hashed(cx, cy) + (hashed(cx + 1, cy) - hashed(cx, cy)) * tx;
     let bottom = hashed(cx, cy + 1) + (hashed(cx + 1, cy + 1) - hashed(cx, cy + 1)) * tx;
     top + (bottom - top) * ty
-}
-
-/// A number from -1 to 1 at each place along a line, going smoothly from one to the next a
-/// unit apart, with a finer wobble on it: the same for the same place and `seed`.
-pub(crate) fn noise(at: f64, seed: u64) -> f64 {
-    fn hashed(at: i64, seed: u64) -> f64 {
-        let mut x = (at as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ seed;
-        x ^= x >> 30;
-        x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        x ^= x >> 27;
-        x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
-        x ^= x >> 31;
-        (x >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
-    }
-    fn smooth(at: f64, seed: u64) -> f64 {
-        let (whole, part) = (at.floor(), at - at.floor());
-        let eased = part * part * (3.0 - 2.0 * part);
-        let (a, b) = (hashed(whole as i64, seed), hashed(whole as i64 + 1, seed));
-        a + (b - a) * eased
-    }
-    0.65 * smooth(at, seed) + 0.35 * smooth(at * 2.7 + 17.0, seed ^ 0x5555_5555)
 }
 
 impl VectorStroke {
@@ -392,6 +347,23 @@ impl VectorStroke {
         [wanted[0].then_some(opacity), wanted[1].then_some(drift)]
     }
 
+    /// Its stamps, where it is drawn by a stamped tip whose tip is known: how much they cover
+    /// each pixel and how far its colour drifts there, by tile.
+    pub(crate) fn stamped(&self) -> Option<crate::stamp::Laid> {
+        let mut stamper = crate::stamp::Stamper::new(self.stamp.as_deref()?, self.nib)?;
+        let (places, samples, tones) = (self.places(), self.samples(), self.tones());
+        let mut laid = crate::stamp::Laid::default();
+        let mut along = 0.0;
+        let mut last: Option<crate::stamp::Place> = None;
+        for (((at, _, _), (_, radius)), [opacity, drift]) in places.into_iter().zip(samples).zip(tones) {
+            along += last.map_or(0.0, |last| last.at.distance(at));
+            let place = crate::stamp::Place { at, along, radius, opacity, drift };
+            stamper.between(last.as_ref().unwrap_or(&place), &place, &mut laid);
+            last = Some(place);
+        }
+        Some(laid)
+    }
+
     /// A stroke of `width` all along `path`.
     pub fn even(path: BezPath, width: f64) -> VectorStroke {
         let points = path.elements().iter().filter(|el| !matches!(el, PathEl::ClosePath)).count();
@@ -442,36 +414,18 @@ impl VectorStroke {
     /// filled by the non-zero rule. [`VectorStroke::outline`] is the same area made of many
     /// pieces, much slower for a boolean and drawn a little too full at its edges.
     pub fn contour(&self) -> BezPath {
-        self.edge(None)
+        self.edge(false)
     }
 
     /// [`VectorStroke::contour`] with one point at each sample along the sides, facing between
     /// the chords either side, and the nib gone round only where the line turns sharply: an
     /// edge smooth enough to fit with a few curves, for a surface.
-    /// With `rough`, its edge goes in and out along the sides as a rough brush's does.
-    pub(crate) fn smooth_contour(&self, rough: Rough) -> BezPath {
-        self.edge(Some(rough))
+    pub(crate) fn smooth_contour(&self) -> BezPath {
+        self.edge(true)
     }
 
-    fn edge(&self, smooth: Option<Rough>) -> BezPath {
-        let mut samples = self.samples();
-        // Rough, the samples close enough together for the bumps to show, and how far along
-        // each one is, which the bumps are laid out by.
-        let rough = smooth.filter(|rough| rough.amount > 0.0 && rough.bump > 0.0);
-        if let Some(rough) = rough {
-            samples = denser(&samples, (rough.bump / 4.0).max(0.5));
-        }
-        let mut along = vec![0.0];
-        for pair in samples.windows(2) {
-            along.push(along[along.len() - 1] + pair[0].0.distance(pair[1].0));
-        }
-        let length = along[along.len() - 1];
-        // How much wider or narrower each side is at a place along it: the way back along the
-        // second side goes on from where the first ended, round the end.
-        let scale = |at: f64| rough.map_or(1.0, |rough| 1.0 + rough.amount * noise(at / rough.bump, rough.seed));
-        let forward: Vec<f64> = along.iter().map(|at| scale(*at)).collect();
-        let back: Vec<f64> = along.iter().map(|at| scale(2.0 * length - at)).collect();
-        let smooth = smooth.is_some();
+    fn edge(&self, smooth: bool) -> BezPath {
+        let samples = self.samples();
         let mut out = BezPath::new();
         let Some(&(first, first_radius)) = samples.first() else { return out };
         // The way along at each sample: of the chord to the next, the last of the one before.
@@ -510,15 +464,13 @@ impl VectorStroke {
         // At each sample the stroke arrives along the chord before it and leaves along the one
         // after: forward, `ways[i - 1]` then `ways[i]`; coming back, the two reversed.
         let last = samples.len() - 1;
-        out.move_to(first + self.nib.reach(first_radius * forward[0], left(ways[0])));
-        // Round the start, the way back having come to it at its own width.
-        let first_radius = first_radius * back[0];
+        out.move_to(first + self.nib.reach(first_radius, left(ways[0])));
         for (i, &(at, radius)) in samples.iter().enumerate() {
             let arrive = if i == 0 { ways[0] } else { ways[i - 1] };
-            side(&mut out, at, radius * forward[i], arrive, ways[i]);
+            side(&mut out, at, radius, arrive, ways[i]);
         }
         // Round the end, from its left to its right through straight ahead; or square across.
-        let (end, end_radius) = (samples[last].0, samples[last].1 * forward[last]);
+        let (end, end_radius) = (samples[last].0, samples[last].1);
         let square = |out: &mut BezPath, at: kurbo::Point, radius: f64, way: Vec2, cap: Cap| {
             let past = if cap == Cap::Miter { way * self.nib.reach(radius, way).dot(way) } else { Vec2::ZERO };
             out.line_to(at + self.nib.reach(radius, left(way)) + past);
@@ -533,7 +485,7 @@ impl VectorStroke {
         }
         for (i, &(at, radius)) in samples.iter().enumerate().rev() {
             let leave = if i == 0 { ways[0] } else { ways[i - 1] };
-            side(&mut out, at, radius * back[i], -ways[i], -leave);
+            side(&mut out, at, radius, -ways[i], -leave);
         }
         match self.caps[0] {
             Cap::Round => {
@@ -666,6 +618,7 @@ impl ShapeKind {
                     opacities: stroke.opacities.clone(),
                     drifts: stroke.drifts.clone(),
                     boil: stroke.boil,
+                    stamp: stroke.stamp.clone(),
                 })
             }
             ShapeKind::Fill(fill) => ShapeKind::Fill(VectorFill {
@@ -769,6 +722,9 @@ impl VectorArt {
                     |at: kurbo::Point| at + Vec2::new(noise2(at.x / wide, at.y / wide, seed), noise2(at.x / wide, at.y / wide, seed ^ 0xB011)) * boil.amount;
                 shape.kind.bend((wide / 4.0).max(1.0), &wobble);
                 let regrain = |stroke: &mut VectorStroke| {
+                    if let Some(stamp) = &mut stroke.stamp {
+                        stamp.seed ^= seed;
+                    }
                     if let Some(grain) = &mut stroke.grain {
                         grain.seed ^= seed;
                     }
@@ -901,6 +857,15 @@ impl VectorArt {
         serde_json::to_string(&*self.shapes).unwrap_or_default()
     }
 
+    /// The keys of the tips its strokes are stamped with ([`crate::Stamp`]).
+    pub fn tips(&self) -> BTreeSet<String> {
+        let strokes = self.shapes.iter().flat_map(|shape| match &shape.kind {
+            ShapeKind::Stroke(stroke) => std::slice::from_ref(stroke),
+            ShapeKind::Fill(fill) => fill.tracks.as_slice(),
+        });
+        strokes.filter_map(|stroke| stroke.stamp.as_ref().map(|stamp| stamp.tip.clone())).collect()
+    }
+
     /// Vector art of shapes as [`VectorArt::to_json`] wrote them.
     pub fn from_json(json: &str) -> Result<VectorArt, serde_json::Error> {
         Ok(VectorArt::new(serde_json::from_str(json)?))
@@ -995,6 +960,19 @@ fn rasterize(shapes: &[VectorShape]) -> IndexedSurface {
     let mut surface = IndexedSurface::new();
     let mut rasterizer = Rasterizer::default();
     for shape in shapes {
+        // A stroke drawn by a stamped tip is its stamps, in place of its outline.
+        // Its stamps are kept until it changes.
+        if let ShapeKind::Stroke(stroke) = &shape.kind
+            && stroke.stamp.is_some()
+            && let Some(kept) = crate::stamp::kept(stroke, || stroke.stamped())
+        {
+            for (coord, coverage, drift) in &kept.tiles {
+                let coverage: Vec<f32> = coverage.iter().map(|c| f32::from(*c) / 65535.0).collect();
+                let drift: Option<Vec<f32>> = drift.as_ref().map(|drift| drift.iter().map(|d| f32::from(*d) / 255.0).collect());
+                surface.paint_drifted(crate::PaintMode::Over, coord.rect(), &coverage, drift.as_deref(), shape.swatch, &[]);
+            }
+            continue;
+        }
         // A stroke with grain or tone is cut by them, as the pixel brush's paint is; a surface
         // by those of each stroke it was drawn from, the most any of them leaves. A surface's
         // rough edge goes out up to nine tenths of the stroke's half width past it.

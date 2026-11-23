@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 use vectorcraft_geom::{FillRule, PathData};
 use vectorcraft_pathops::{BoolOp, SimplifyOptions};
 
+use crate::stamp::{Laid, Place, Stamper};
 use crate::vector::Rasterizer;
-use crate::{IndexedSurface, Nib, Rect, SwatchId, VectorStroke};
+use crate::{IndexedSurface, Nib, Rect, StampBrush, SwatchId, VectorStroke};
 
 /// What a vector stroke is drawn with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -60,22 +61,6 @@ pub struct VectorBrush {
     /// pen, thick or thin as the stroke goes across or along its angle).
     pub angle: f32,
     pub roundness: f32,
-    /// How far a surface's edge goes in and out, as a part of half its width (0..0.9): a rough
-    /// edge, as of ink on paper or a crayon. Lines keep a smooth edge.
-    pub roughness: f32,
-    /// How long a bump of the rough edge is, in widths of the brush's size.
-    pub bumps: f32,
-    /// A dry brush: how many strands side by side a surface is made of, which break up where
-    /// the paint runs out. Fewer than two is one, a brush full of paint.
-    pub bristles: u32,
-    /// How soon the strands break up (0..1): along the stroke, as it goes on, and where it is
-    /// thinner, as with a lighter touch.
-    pub dryness: f32,
-    /// How much of a surface is holes (0..1), as chalk or a sponge leaves on paper: more
-    /// where the stroke is thinner, as with a lighter touch.
-    pub holes: f32,
-    /// How wide a hole is, in widths of the brush's size.
-    pub hole_size: f32,
     /// A paper texture over the stroke, as the pixel brush's.
     pub texture: photocraft_paint::Texture,
     /// A second tip along the stroke, which cuts it, as the pixel brush's.
@@ -83,6 +68,17 @@ pub struct VectorBrush {
     /// What chance does to the second tip: each stroke has its own.
     #[serde(skip_serializing_if = "is_zero")]
     pub seed: u64,
+    /// A picture's tip stamped along the line, which draws it in place of its outline (the
+    /// user's of 2026-11-23, as Moho's brushes do). With it on, the texture and the second tip
+    /// are not used.
+    #[serde(skip_serializing_if = "StampBrush::is_off")]
+    pub stamp: StampBrush,
+}
+
+impl StampBrush {
+    fn is_off(&self) -> bool {
+        !self.enabled && *self == StampBrush { enabled: false, ..StampBrush::default() }
+    }
 }
 
 fn is_zero(seed: &u64) -> bool {
@@ -111,24 +107,25 @@ impl Default for VectorBrush {
             boil_every: 2,
             angle: 0.0,
             roundness: 1.0,
-            roughness: 0.0,
-            bumps: 0.5,
-            bristles: 0,
-            dryness: 0.5,
-            holes: 0.0,
-            hole_size: 0.12,
             texture: Default::default(),
             dual_brush: Default::default(),
             seed: 0,
+            stamp: StampBrush::default(),
         }
     }
 }
 
 impl VectorBrush {
     /// What of the brush's texture and second tip its strokes keep, if either is on.
+    /// None where it stamps a tip, which takes their place.
     pub fn grain(&self) -> Option<Box<crate::Grain>> {
-        (self.texture.enabled || self.dual_brush.enabled)
+        (!self.stamp.stamps() && (self.texture.enabled || self.dual_brush.enabled))
             .then(|| Box::new(crate::Grain { texture: self.texture.clone(), dual_brush: self.dual_brush.clone(), seed: self.seed }))
+    }
+
+    /// The tip its strokes are stamped with, with this brush's chance, if it stamps one.
+    pub fn stamping(&self) -> Option<Box<crate::Stamp>> {
+        self.stamp.stamp(self.seed)
     }
 
     /// The nib the brush's strokes are drawn with.
@@ -240,7 +237,9 @@ pub fn rebrushed(stroke: &VectorStroke, brush: &VectorBrush) -> VectorStroke {
         true => stroke.widths.iter().map(|width| brush.drift_at(pressed(width))).collect(),
         false => Vec::new(),
     };
-    VectorStroke { widths, opacities, drifts, nib: brush.nib(), grain: brush.grain(), boil: brush.boiling(), ..stroke.clone() }
+    // Each line its own chance, from where it lies.
+    let stamp = brush.stamp.stamp(brush.seed ^ (length.to_bits().wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+    VectorStroke { widths, opacities, drifts, nib: brush.nib(), grain: brush.grain(), boil: brush.boiling(), stamp, ..stroke.clone() }
 }
 
 /// Anchors where the pen turns more sharply than this stay corners. Smaller turns, which a
@@ -248,214 +247,24 @@ pub fn rebrushed(stroke: &VectorStroke, brush: &VectorBrush) -> VectorStroke {
 const CORNER_DEGREES: f64 = 70.0;
 
 /// The surface a brush set to leave surfaces makes of `stroke` (the user's of 2026-11-04): the
-/// area it covers as one outline, with no middle line, its edge as rough as `brush` says,
-/// fitted with Béziers that stray from it by no more than `brush`'s `simplify` in pixels.
-/// Where the stroke crosses itself it is one area.
+/// area it covers as one plain outline, with no middle line, fitted with Béziers that stray
+/// from it by no more than `brush`'s `simplify` in pixels. Where the stroke crosses itself it is
+/// one area. Plain, as Moho's Blob Brush leaves it (the user's of 2026-11-23): no rough edge,
+/// strands, holes or paper texture, which made it slow and looked cut out.
 pub fn surface(stroke: &VectorStroke, brush: &VectorBrush) -> BezPath {
-    surface_at_speed(stroke, brush, &[])
-}
-
-/// How fast the pen went along `points`, in the brush's widths a second, by how far along the
-/// path it was, as a part of the whole: measured over 80 ms about each point, as a window's
-/// frame gives its points one time. Empty where the points have no times.
-fn speeds(points: &[StrokePoint], size: f64) -> Vec<(f64, f64)> {
-    let mut along = vec![0.0];
-    for pair in points.windows(2) {
-        along.push(along[along.len() - 1] + (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y));
-    }
-    let length = along[along.len() - 1];
-    let (first, last) = (points.first().map_or(0.0, |p| p.time), points.last().map_or(0.0, |p| p.time));
-    if points.len() < 2 || length <= 0.0 || last - first <= 0.0 {
-        return Vec::new();
-    }
-    let size = size.max(0.5);
-    (0..points.len())
-        .map(|at| {
-            let time = points[at].time;
-            let from = points[..at].iter().rposition(|p| p.time <= time - 40.0).unwrap_or(0);
-            let to = points[at..].iter().position(|p| p.time >= time + 40.0).map_or(points.len() - 1, |n| at + n);
-            let took = points[to].time - points[from].time;
-            let speed = if took > 0.0 { (along[to] - along[from]) / took * 1000.0 / size } else { 0.0 };
-            (along[at] / length, speed)
-        })
-        .collect()
-}
-
-/// [`surface`] of a stroke the pen drew along `points`: a dry brush's strands break up sooner
-/// where it went fast, as a brush drawn quickly leaves its paint behind (the user's of
-/// 2026-11-04). Points with no times are as slow as can be.
-pub fn surface_drawn(stroke: &VectorStroke, brush: &VectorBrush, points: &[StrokePoint]) -> BezPath {
-    let speeds = if brush.bristles >= 2 { speeds(points, f64::from(brush.size)) } else { Vec::new() };
-    surface_at_speed(stroke, brush, &speeds)
-}
-
-fn surface_at_speed(stroke: &VectorStroke, brush: &VectorBrush, speeds: &[(f64, f64)]) -> BezPath {
-    // Each stroke its own bumps: the brush's chance, and where the stroke starts.
-    let start = stroke.path.elements().first().and_then(|element| element.end_point()).unwrap_or_default();
-    let seed = brush.seed ^ start.x.to_bits().rotate_left(17) ^ start.y.to_bits();
-    let bump = f64::from(brush.bumps.max(0.01) * brush.size);
-    let rough = crate::vector::Rough { amount: f64::from(brush.roughness.clamp(0.0, 0.9)), bump, seed };
-    let tolerance = f64::from(brush.simplify);
-    // A dry brush's strands, each as rough as the brush, as one area; or the stroke whole.
-    let strands = if brush.bristles >= 2 { strands(stroke, brush, seed, speeds) } else { Vec::new() };
-    let whole = match strands.is_empty() {
-        true => {
-            let contour = PathData::from_bezpath(&stroke.smooth_contour(rough));
-            // Its union with itself takes the crossings out, leaving the edge alone.
-            vectorcraft_pathops::boolean(&contour, FillRule::NonZero, &contour, FillRule::NonZero, BoolOp::Union)
-        }
-        false => {
-            let contours: Vec<PathData> = strands
-                .iter()
-                .enumerate()
-                .map(|(at, strand)| PathData::from_bezpath(&strand.smooth_contour(crate::vector::Rough { seed: seed ^ (at as u64 + 1), ..rough })))
-                .collect();
-            let all: Vec<(&PathData, FillRule)> = contours.iter().map(|contour| (contour, FillRule::NonZero)).collect();
-            vectorcraft_pathops::boolean_n(&all, |inside| inside.iter().any(|on| *on))
-        }
-    };
-    // Chalk's or a sponge's holes, cut out of it.
-    let whole = match holes(stroke, brush, seed) {
-        Some(holes) => vectorcraft_pathops::boolean(&whole, FillRule::NonZero, &holes, FillRule::NonZero, BoolOp::Difference),
-        None => whole,
-    };
-    let options = SimplifyOptions { tolerance: tolerance.max(0.05), corner_angle_deg: CORNER_DEGREES, straight_lines: false };
+    let contour = PathData::from_bezpath(&stroke.smooth_contour());
+    // Its union with itself takes the crossings out, leaving the edge alone.
+    let whole = vectorcraft_pathops::boolean(&contour, FillRule::NonZero, &contour, FillRule::NonZero, BoolOp::Union);
+    let options = SimplifyOptions { tolerance: f64::from(brush.simplify).max(0.05), corner_angle_deg: CORNER_DEGREES, straight_lines: false };
     vectorcraft_pathops::simplify_with(&whole, &options).to_bezpath()
 }
 
-/// A number from 0 to 1 for `at` and `seed`, the same each time.
-fn chance(at: u64, seed: u64) -> f64 {
-    let mut x = at.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ seed;
-    x ^= x >> 31;
-    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 29;
-    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^= x >> 32;
-    (x >> 11) as f64 / (1u64 << 53) as f64
-}
-
-/// The holes chalk or a sponge leaves in `stroke` (the user's of 2026-11-04), as one path: small
-/// uneven rounds, `brush.hole_size` widths across, scattered over its area on a loose grid,
-/// each place taking one by a chance of `brush.holes`, more where the stroke is thinner. `None`
-/// with no holes.
-fn holes(stroke: &VectorStroke, brush: &VectorBrush, seed: u64) -> Option<PathData> {
-    use crate::vector::denser;
-    let density = f64::from(brush.holes.clamp(0.0, 1.0));
-    let radius = f64::from(brush.hole_size.max(0.01) * brush.size) / 2.0;
-    if density <= 0.0 || radius < 0.3 {
-        return None;
-    }
-    // The places a hole may be: a grid a little wider apart than a hole, along and across.
-    let step = (radius * 2.2).max(0.8);
-    let samples = denser(&stroke.samples(), step);
-    if samples.len() < 2 {
-        return None;
-    }
-    let widest = samples.iter().map(|(_, r)| *r).fold(0.0, f64::max).max(1e-9);
-    let mut out = BezPath::new();
-    let mut made = 0u64;
-    for (at, &(point, half)) in samples.iter().enumerate() {
-        let way = samples[(at + 1).min(samples.len() - 1)].0 - samples[at.saturating_sub(1)].0;
-        if way.hypot2() <= 1e-18 {
-            continue;
-        }
-        let (along, across) = (way.normalize(), kurbo::Vec2::new(-way.y, way.x).normalize());
-        let likely = (density * (0.6 + 0.9 * (1.0 - half / widest))).min(1.0);
-        let reach = (half / step).floor() as i64;
-        for row in -reach..=reach {
-            let place = (at as u64) << 16 ^ (row + 0x8000) as u64;
-            if chance(place, seed) >= likely {
-                continue;
-            }
-            // Shaken off the grid, and of its own size and shape.
-            let shake = along * ((chance(place, seed ^ 1) - 0.5) * step) + across * ((chance(place, seed ^ 2) - 0.5) * step);
-            let middle = point + across * (row as f64 * step) + shake;
-            let size = radius * (0.6 + 0.8 * chance(place, seed ^ 3));
-            let turn = chance(place, seed ^ 4) * std::f64::consts::TAU;
-            for corner in 0..7 {
-                let angle = turn + corner as f64 / 7.0 * std::f64::consts::TAU;
-                let out_to = size * (0.65 + 0.35 * chance(place ^ (corner as u64 + 1) << 40, seed ^ 5));
-                let at = middle + kurbo::Vec2::new(angle.cos(), angle.sin()) * out_to;
-                if corner == 0 { out.move_to(at) } else { out.line_to(at) }
-            }
-            out.close_path();
-            made += 1;
-            if made >= 20_000 {
-                break;
-            }
-        }
-    }
-    (made > 0).then(|| PathData::from_bezpath(&out))
-}
-
-/// A dry brush's strands along `stroke` (the user's of 2026-11-04): `brush.bristles` lines side
-/// by side across its width, each of its own width, wandering a little, and broken where the
-/// paint runs out, which is sooner as the stroke goes on and where it is thinner. `seed` lays
-/// out the breaks. Empty where every strand ran out.
-fn strands(stroke: &VectorStroke, brush: &VectorBrush, seed: u64, speeds: &[(f64, f64)]) -> Vec<VectorStroke> {
-    use crate::vector::{denser, noise};
-    let size = f64::from(brush.size).max(0.5);
-    let samples = denser(&stroke.samples(), (size / 4.0).max(0.5));
-    if samples.len() < 2 {
-        return Vec::new();
-    }
-    let mut along = vec![0.0];
-    for pair in samples.windows(2) {
-        along.push(along[along.len() - 1] + pair[0].0.distance(pair[1].0));
-    }
-    let length = along[along.len() - 1].max(1e-9);
-    let widest = samples.iter().map(|(_, radius)| *radius).fold(0.0, f64::max).max(1e-9);
-    // Across the stroke at each sample: of the chord from the one before to the one after.
-    let across: Vec<kurbo::Vec2> = (0..samples.len())
-        .map(|at| {
-            let way = samples[(at + 1).min(samples.len() - 1)].0 - samples[at.saturating_sub(1)].0;
-            if way.hypot2() > 1e-18 { kurbo::Vec2::new(-way.y, way.x).normalize() } else { kurbo::Vec2::ZERO }
-        })
-        .collect();
-    let (count, dryness) = (brush.bristles.min(32) as usize, f64::from(brush.dryness.clamp(0.0, 1.0)));
-    let mut out = Vec::new();
-    for strand in 0..count {
-        let own = seed ^ (strand as u64 + 1).wrapping_mul(0x2545_F491_4F6C_DD1D);
-        // Its place across, from one edge to the other, and its width: together they overlap.
-        let place = (-1.0 + 2.0 * strand as f64 / (count - 1) as f64) * (1.0 - 1.0 / count as f64);
-        let width = (0.75 + 0.25 * (noise(0.5, own) + 1.0)) * 1.3 / count as f64;
-        let mut run: Vec<(Point, f64)> = Vec::new();
-        let mut finish = |run: &mut Vec<(Point, f64)>| {
-            if run.len() >= 2 {
-                let mut path = BezPath::new();
-                path.move_to(run[0].0);
-                run[1..].iter().for_each(|(at, _)| path.line_to(*at));
-                let widths = run.iter().map(|(_, radius)| radius * 2.0).collect();
-                out.push(VectorStroke { path, widths, nib: Nib::default(), caps: Default::default(), grain: None, ..Default::default() });
-            }
-            run.clear();
-        };
-        for (at, &(point, radius)) in samples.iter().enumerate() {
-            let t = along[at] / length;
-            // The paint left: less as the stroke goes on, where it is thinner, and where the pen
-            // went fast, from 20 widths a second, most at 80.
-            let fast = ((speed_at(speeds, t) - 20.0) / 60.0).clamp(0.0, 1.0);
-            let wanting = -1.0 + dryness * (0.8 + t + 1.5 * (1.0 - radius / widest) + 1.2 * fast);
-            if noise(along[at] / (size * 0.6), own ^ 0x0D21) <= wanting || radius <= 0.0 {
-                finish(&mut run);
-                continue;
-            }
-            let wander = 0.15 / count as f64 * noise(along[at] / (size * 3.0), own ^ 0x7A11);
-            run.push((point + across[at] * (radius * (place + wander)), radius * width));
-        }
-        finish(&mut run);
-    }
-    out
-}
-
-/// How fast the pen went `t` of the way along, from [`speeds`]: 0 with none.
-fn speed_at(speeds: &[(f64, f64)], t: f64) -> f64 {
-    let after = speeds.partition_point(|(at, _)| *at < t);
-    match (after.checked_sub(1).and_then(|before| speeds.get(before)), speeds.get(after)) {
-        (Some(&(a, sa)), Some(&(b, sb))) if b > a => sa + (sb - sa) * (t - a) / (b - a),
-        (_, Some(&(_, speed))) | (Some(&(_, speed)), None) => speed,
-        (None, None) => 0.0,
-    }
+/// The shape a brush set to leave surfaces leaves of `stroke`: a fill of its [`surface`], which
+/// keeps the stroke as its track where its tone changes along it, so it fades and drifts as the
+/// line would, but never its grain, and boils as it does.
+pub fn surface_shape(stroke: &VectorStroke, brush: &VectorBrush) -> crate::ShapeKind {
+    let tracks = if stroke.toned() { vec![VectorStroke { grain: None, stamp: None, ..stroke.clone() }] } else { Vec::new() };
+    crate::ShapeKind::Fill(crate::VectorFill { tracks, boil: stroke.boil, ..crate::VectorFill::plain(surface(stroke, brush)) })
 }
 
 /// The stroke the pen drew along `points` with `brush`, or `None` if it drew nothing.
@@ -507,6 +316,7 @@ pub fn vector_stroke(points: &[StrokePoint], brush: &VectorBrush) -> Option<Vect
             opacities: opacities.into_iter().filter(|opacity| *opacity < 1.0).collect(),
             drifts: drifts.into_iter().filter(|drift| *drift > 0.0).collect(),
             boil: brush.boiling(),
+            stamp: brush.stamping(),
         });
     }
     // Along the pen's path: how far each sample is from the start.
@@ -584,6 +394,7 @@ pub fn vector_stroke(points: &[StrokePoint], brush: &VectorBrush) -> Option<Vect
         opacities: kept_opacities,
         drifts: kept_drifts,
         boil: brush.boiling(),
+        stamp: brush.stamping(),
     })
 }
 
@@ -657,42 +468,9 @@ pub struct LiveVector {
     /// seen until the pen lifts, when the end is known.
     gone: f64,
     rasterizer: Rasterizer,
-    /// Left as a surface with a rough edge, strands or holes: what is drawn so far made as it
-    /// will be kept, from time to time.
-    textured: Option<Textured>,
-}
-
-/// A textured surface seen as it is drawn (the user's of 2026-11-04): its edge, strands and
-/// holes are made of the fitted stroke, so at each push the stroke so far is fitted and made the
-/// surface it would be kept as, from its first point, in place of the plain pieces a line is
-/// drawn with. Not yet made quicker for a long stroke (the user's: "we'll optimize it later").
-struct Textured {
-    /// The pen's points so far, as they came.
-    points: Vec<StrokePoint>,
-}
-
-/// The coverage by tile of the surface `brush` makes along `points`, as it would be kept were the
-/// pen lifted there, but for the taper and the fade at the end, which come when it is; and how
-/// far its colour drifts, by tile, where it does.
-type Tiles = HashMap<TileCoord, Vec<f32>>;
-fn textured_coverage(points: &[StrokePoint], brush: &VectorBrush) -> (Tiles, Tiles) {
-    let brush = VectorBrush { taper_end: 0.0, fade_end: 0.0, ..brush.clone() };
-    let (mut tiles, mut drifts) = (HashMap::new(), HashMap::new());
-    if let Some(stroke) = vector_stroke(points, &brush) {
-        let mut rasterizer = Rasterizer::default();
-        // As faint as the stroke is, where its opacity changes along it.
-        rasterizer.fill(&surface_drawn(&stroke, &brush, points), |rect, cover| {
-            let [opacity, drift] = stroke.tone_in(rect, 1.9);
-            match opacity {
-                Some(opacity) => most(&mut tiles, rect, &cover.iter().zip(opacity).map(|(c, o)| c * o).collect::<Vec<f32>>()),
-                None => most(&mut tiles, rect, cover),
-            }
-            if let Some(drift) = drift {
-                most(&mut drifts, rect, &cover.iter().zip(drift).map(|(c, d)| if *c > 0.0 { d } else { 0.0 }).collect::<Vec<f32>>());
-            }
-        });
-    }
-    (tiles, drifts)
+    /// Where the brush stamps a tip: what lays its stamps, and the place along the pen's path
+    /// it stamped to last.
+    stamper: Option<(Stamper, Option<Place>)>,
 }
 
 impl LiveVector {
@@ -712,17 +490,8 @@ impl LiveVector {
             last_drift: 0.0,
             gone: 0.0,
             rasterizer: Rasterizer::default(),
-            textured: None,
+            stamper: brush.stamping().and_then(|stamp| Stamper::new(&stamp, brush.nib())).map(|stamper| (stamper, None)),
         }
-    }
-
-    /// The same, seen as the surface it leaves where that has a rough edge, strands or holes,
-    /// as the Brush set to leave surfaces draws.
-    pub fn leaving_surface(self, surface: bool) -> LiveVector {
-        let brush = &self.brush;
-        let textured = surface && (brush.roughness > 0.0 || brush.bristles >= 2 || brush.holes > 0.0);
-        let textured = textured.then(|| Textured { points: Vec::new() });
-        LiveVector { textured, ..self }
     }
 
     /// The same, leaving what is painted with the `protected` swatches as it is.
@@ -742,14 +511,6 @@ impl LiveVector {
 
     /// Draw the stroke on to `points`. Returns the pixels that changed.
     pub fn push(&mut self, points: &[StrokePoint]) -> Rect {
-        // A textured surface is made whole as it will be kept, at once.
-        if let Some(textured) = &mut self.textured {
-            textured.points.extend(points.iter().filter(|p| p.x.is_finite() && p.y.is_finite()));
-            let (made, drift) = textured_coverage(&textured.points, &self.brush);
-            let changed = self.coverage.keys().chain(made.keys()).fold(Rect::EMPTY, |all, tile| all.union(&tile.rect()));
-            (self.coverage, self.drift) = (made, drift);
-            return self.refresh(changed);
-        }
         let keep = 1.0 - f64::from(self.brush.smoothing.clamp(0.0, 0.95));
         let mut changed = Rect::EMPTY;
         for p in points.iter().filter(|p| p.x.is_finite() && p.y.is_finite()) {
@@ -784,6 +545,16 @@ impl LiveVector {
                 }
             };
             self.last = Some((at, width));
+            // Stamped, the stamps that fall on the piece, each as faint and drifted as the pen
+            // was there.
+            if let Some((stamper, last)) = &mut self.stamper {
+                let place = Place { at, along: self.gone, radius: width / 2.0, opacity, drift };
+                let mut laid = Laid { coverage: std::mem::take(&mut self.coverage), drift: std::mem::take(&mut self.drift) };
+                changed = changed.union(&stamper.between(last.as_ref().unwrap_or(&place), &place, &mut laid));
+                (self.coverage, self.drift) = (laid.coverage, laid.drift);
+                *last = Some(place);
+                continue;
+            }
             let piece = VectorStroke { path, widths, nib: self.brush.nib(), caps: Default::default(), grain: None, ..Default::default() }.contour();
             let (coverage, drifts) = (&mut self.coverage, &mut self.drift);
             self.rasterizer.fill(&piece, |rect, cover| {
@@ -981,92 +752,20 @@ mod tests {
     }
 
     #[test]
-    fn a_rough_surface_goes_in_and_out_along_its_edge_the_same_each_time() {
-        let points: Vec<_> = (0..=100).map(|i| (f64::from(i) * 4.0, 100.0, 1.0)).collect();
-        let smooth = VectorBrush { size: 20.0, pressure_size: false, smoothing: 0.0, ..VectorBrush::default() };
-        let rough = VectorBrush { roughness: 0.5, bumps: 0.5, ..smooth.clone() };
-        let stroke = vector_stroke(&pen(&points), &smooth).unwrap();
-        let (plain, bumpy) = (surface(&stroke, &smooth), surface(&stroke, &rough));
-        // Its edge is longer, for its bumps, and strays from the plain edge by up to half the
-        // half width, no more.
-        assert!(bumpy.perimeter(0.1) > plain.perimeter(0.1) * 1.05, "{} against {}", bumpy.perimeter(0.1), plain.perimeter(0.1));
-        let (top, bottom) = (bumpy.bounding_box().y0, bumpy.bounding_box().y1);
-        assert!(top > 100.0 - 10.0 * 1.5 - 0.6 && bottom < 100.0 + 10.0 * 1.5 + 0.6, "{top}..{bottom}");
-        let inward = (10..390).step_by(5).map(|x| (90..=110).filter(|y| bumpy.winding(Point::new(f64::from(x), f64::from(*y))) != 0).count()).min().unwrap();
-        assert!((8..21).contains(&inward), "at its narrowest {inward} pixels across");
-        // The same stroke drawn again has the same edge, and another stroke its own.
-        assert_eq!(surface(&stroke, &rough), bumpy);
-        let lower: Vec<_> = points.iter().map(|&(x, y, p)| (x, y + 50.0, p)).collect();
-        let other = surface(&vector_stroke(&pen(&lower), &smooth).unwrap(), &rough);
-        assert_ne!(other, kurbo::Affine::translate((0.0, 50.0)) * bumpy);
-    }
-
-    #[test]
-    fn a_dry_brush_leaves_strands_that_break_up_as_the_paint_runs_out() {
-        let points: Vec<_> = (0..=150).map(|i| (f64::from(i) * 4.0, 100.0, 1.0)).collect();
-        let full = VectorBrush { size: 24.0, pressure_size: false, smoothing: 0.0, ..VectorBrush::default() };
-        let stroke = vector_stroke(&pen(&points), &full).unwrap();
-        let covered = |path: &BezPath, from: i32, to: i32| {
-            (from..to).flat_map(|x| (80..=120).map(move |y| Point::new(f64::from(x) + 0.5, f64::from(y) + 0.5))).filter(|p| path.winding(*p) != 0).count()
-        };
-        let plain = surface(&stroke, &full);
-        let wet = surface(&stroke, &VectorBrush { bristles: 6, dryness: 0.0, ..full.clone() });
-        let dry = surface(&stroke, &VectorBrush { bristles: 6, dryness: 0.7, ..full.clone() });
-        let pieces = |path: &BezPath| path.elements().iter().filter(|e| matches!(e, kurbo::PathEl::MoveTo(_))).count();
-        // Wet, the strands are all there, close to the whole width; dry, broken into many
-        // pieces, and broken more towards the end than at the start.
-        let (whole, wet_all, dry_all) = (covered(&plain, 0, 600), covered(&wet, 0, 600), covered(&dry, 0, 600));
-        assert!(wet_all * 10 > whole * 8 && wet_all <= whole + 600, "wet {wet_all} of {whole}");
-        assert!(dry_all < wet_all * 8 / 10 && pieces(&dry) > pieces(&wet) + 8, "dry {dry_all} in {} pieces, wet {wet_all} in {}", pieces(&dry), pieces(&wet));
-        assert!(covered(&dry, 0, 200) > covered(&dry, 400, 600), "{} at the start, {} at the end", covered(&dry, 0, 200), covered(&dry, 400, 600));
-        // Never past the stroke's own edge, and the same drawn again.
-        assert!(dry.bounding_box().y0 > 100.0 - 12.0 - 1.0 && dry.bounding_box().y1 < 100.0 + 12.0 + 1.0, "{:?}", dry.bounding_box());
-        assert_eq!(surface(&stroke, &VectorBrush { bristles: 6, dryness: 0.7, ..full }), dry);
-    }
-
-    #[test]
-    fn a_dry_brush_drawn_fast_breaks_up_sooner() {
-        // The same line drawn slowly, 10 px a second, and fast, 2500 (100 widths), four points to a
-        // frame of 16 ms as the window gives them.
-        let drawn = |per_frame: f64| -> Vec<StrokePoint> {
-            (0..=150)
-                .map(|i| StrokePoint { time: (f64::from(i) / 4.0).floor() * 16.0 * per_frame, ..StrokePoint::new(f64::from(i) * 4.0, 100.0, 1.0) })
-                .collect()
-        };
-        let (slow, fast) = (drawn(100.0), drawn(0.4));
-        let dry = VectorBrush { size: 24.0, pressure_size: false, smoothing: 0.0, bristles: 6, dryness: 0.5, ..VectorBrush::default() };
-        let stroke = vector_stroke(&slow, &dry).unwrap();
-        let covered = |path: &BezPath| {
-            (0..600).flat_map(|x| (80..=120).map(move |y| Point::new(f64::from(x) + 0.5, f64::from(y) + 0.5))).filter(|p| path.winding(*p) != 0).count()
-        };
-        let (at_rest, quick) = (covered(&surface_drawn(&stroke, &dry, &slow)), covered(&surface_drawn(&stroke, &dry, &fast)));
-        assert!(quick * 10 < at_rest * 8, "fast {quick}, slow {at_rest}");
-        // Slow is as with no times at all; and a full brush is not broken however fast.
-        assert_eq!(surface_drawn(&stroke, &dry, &slow), surface(&stroke, &dry));
-        let full = VectorBrush { dryness: 0.0, ..dry };
-        assert_eq!(surface_drawn(&stroke, &full, &fast), surface(&stroke, &full));
-    }
-
-    #[test]
-    fn chalk_leaves_holes_in_its_surface_more_where_it_is_thinner() {
-        // Full pressure on the left half, light on the right.
-        let points: Vec<_> = (0..=150).map(|i| (f64::from(i) * 4.0, 100.0, if i < 75 { 1.0 } else { 0.3 })).collect();
-        let full = VectorBrush { size: 24.0, thinnest: 0.3, smoothing: 0.0, ..VectorBrush::default() };
-        let stroke = vector_stroke(&pen(&points), &full).unwrap();
-        let chalk = VectorBrush { holes: 0.5, hole_size: 0.15, ..full.clone() };
-        let (plain, holed) = (surface(&stroke, &full), surface(&stroke, &chalk));
-        let covered = |path: &BezPath, from: i32, to: i32| {
-            (from..to).flat_map(|x| (80..=120).map(move |y| Point::new(f64::from(x) + 0.5, f64::from(y) + 0.5))).filter(|p| path.winding(*p) != 0).count()
-        };
-        let share = |from, to| covered(&holed, from, to) as f64 / covered(&plain, from, to) as f64;
-        let (heavy, light) = (share(20, 280), share(320, 580));
-        assert!(heavy < 0.95 && heavy > 0.6 && light < heavy, "heavy {heavy:.2}, light {light:.2}");
-        // Holes inside, not a stroke of its own: nothing past the plain surface.
-        let past = (0..600).flat_map(|x| (80..=120).map(move |y| Point::new(f64::from(x) + 0.5, f64::from(y) + 0.5)));
-        // Bar a pixel here and there that the fitted edges round apart.
-        let outside = past.filter(|p| holed.winding(*p) != 0 && plain.winding(*p) == 0).count();
-        assert!(outside < 20, "{outside} pixels past the plain surface");
-        assert_eq!(surface(&stroke, &chalk), holed);
+    fn a_surface_keeps_its_strokes_tone_but_never_its_grain() {
+        let points: Vec<_> = (0..=40).map(|i| (f64::from(i) * 5.0, 50.0, 1.0)).collect();
+        let mut grained = VectorBrush { size: 20.0, ..VectorBrush::default() };
+        grained.texture.enabled = true;
+        let stroke = vector_stroke(&pen(&points), &grained).unwrap();
+        assert!(stroke.grained(), "a line keeps its grain");
+        let crate::ShapeKind::Fill(fill) = surface_shape(&stroke, &grained) else { panic!("a fill") };
+        assert!(fill.tracks.is_empty() && !fill.grained(), "a surface is plain");
+        // Fading, it keeps the stroke for its tone, with no grain.
+        let fading = VectorBrush { fade_end: 3.0, ..grained };
+        let stroke = vector_stroke(&pen(&points), &fading).unwrap();
+        let crate::ShapeKind::Fill(fill) = surface_shape(&stroke, &fading) else { panic!("a fill") };
+        assert_eq!(fill.tracks.len(), 1);
+        assert!(fill.tracks[0].toned() && !fill.grained());
     }
 
     #[test]
@@ -1134,36 +833,6 @@ mod tests {
         assert!((stroke.widths[0] - 8.0).abs() < 1e-9, "the greater pressure");
         assert!(vector_stroke(&[], &VectorBrush::default()).is_none());
         assert!(vector_stroke(&pen(&[(f64::NAN, 0.0, 1.0)]), &VectorBrush::default()).is_none());
-    }
-
-    #[test]
-    fn a_textured_surface_is_seen_as_it_will_be_kept_while_it_is_drawn() {
-        let points: Vec<_> = (0..=150).map(|i| (f64::from(i) * 4.0, 100.0, 1.0)).collect();
-        let chalk = VectorBrush { size: 24.0, pressure_size: false, smoothing: 0.0, holes: 0.6, hole_size: 0.15, ..VectorBrush::default() };
-        let painted = |live: &LiveVector| {
-            let bounds = Rect::new(0, 80, 600, 121);
-            live.layer().pixels(bounds).iter().filter(|pixel| pixel.coverage > u16::MAX / 2).count()
-        };
-        // A line, or a surface with nothing on it to make, is drawn plain.
-        let mut plain = LiveVector::new(&IndexedSurface::new(), &chalk, SwatchId(2)).leaving_surface(false);
-        plain.push(&pen(&points));
-        // A chalky surface, fed a few points at a time, is seen with its holes from the first,
-        // as it is kept.
-        let mut live = LiveVector::new(&IndexedSurface::new(), &chalk, SwatchId(2)).leaving_surface(true);
-        let early = &pen(&points)[..20];
-        live.push(early);
-        // Inside the stroke's width, along its first 76 px: some of it bare.
-        let inside = live.layer().pixels(Rect::new(4, 94, 72, 106));
-        assert!(inside.iter().any(|pixel| pixel.coverage == 0) && inside.iter().any(|pixel| pixel.coverage == u16::MAX), "holes from the start");
-        for chunk in pen(&points)[20..].chunks(10) {
-            live.push(chunk);
-        }
-        let (whole, seen) = (painted(&plain), painted(&live));
-        let outline = surface(&vector_stroke(&pen(&points), &chalk).unwrap(), &chalk);
-        let shape = crate::VectorShape { id: crate::ShapeId(1), swatch: SwatchId(2), kind: crate::ShapeKind::Fill(crate::VectorFill::plain(outline)) };
-        let kept = crate::VectorArt::new(vec![shape]).raster().pixels(Rect::new(0, 80, 600, 121)).iter().filter(|pixel| pixel.coverage > u16::MAX / 2).count();
-        assert!(seen < whole * 95 / 100, "holes seen: {seen} of {whole}");
-        assert!(seen.abs_diff(kept) * 50 < kept, "{seen} seen, {kept} kept");
     }
 
     #[test]

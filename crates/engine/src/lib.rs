@@ -171,6 +171,13 @@ impl Session {
         &self.history
     }
 
+    /// The vector shapes last cut or copied, of every art layer that had any, bottom first:
+    /// what the scatter brush sprays from the clipboard. Empty where none were.
+    pub fn clipboard_shapes(&self) -> Vec<iskra_model::VectorShape> {
+        let vector = self.clipboard.iter().filter_map(|(_, art)| if let iskra_model::ArtContent::Vector(art) = art { Some(art) } else { None });
+        vector.flat_map(|art| art.shapes().iter().cloned()).collect()
+    }
+
     /// Run the command `id` with `params` and return its result.
     pub fn execute(&mut self, id: &str, params: Value) -> Result<Value> {
         if let Some(command) = commands().iter().find(|c| c.id == id) {

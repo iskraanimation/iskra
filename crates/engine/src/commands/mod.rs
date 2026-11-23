@@ -265,6 +265,7 @@ const COMMANDS: &[Command] = &[
     Command { id: "drawing.stroke", title: "Brush Stroke", run: drawing::stroke },
     Command { id: "drawing.mix", title: "Mixer Stroke", run: drawing::mix },
     Command { id: "drawing.vectorStroke", title: "Vector Stroke", run: drawing::vector_stroke },
+    Command { id: "drawing.scatter", title: "Scatter", run: drawing::scatter },
     Command { id: "text.add", title: "New Text", run: text::add },
     Command { id: "text.type", title: "Type Text", run: text::type_text },
     Command { id: "text.setFormat", title: "Format Text", run: text::set_format },

@@ -425,7 +425,20 @@ pub(super) fn vector_stroke(s: &mut Session, params: Value) -> Result<Value> {
     }
     let id = "drawing.vectorStroke";
     let Params { layer, frame, art_layer, swatch, brush, points, hold, protect, mode, flatten, surface } = parse(id, params)?;
-    let numbers = [brush.thinnest, brush.smoothing, brush.simplify, brush.faintest, brush.fade_start, brush.fade_end, brush.drift, brush.boil];
+    let stamp = &brush.stamp;
+    let numbers = [
+        brush.thinnest,
+        brush.smoothing,
+        brush.simplify,
+        brush.faintest,
+        brush.fade_start,
+        brush.fade_end,
+        brush.drift,
+        brush.boil,
+        stamp.spacing,
+        stamp.jitter,
+        stamp.drift,
+    ];
     if !(brush.size.is_finite() && brush.size > 0.0 && numbers.iter().all(|n| n.is_finite())) {
         return invalid("the brush's size is a number above zero, and its other settings numbers");
     }
@@ -436,6 +449,8 @@ pub(super) fn vector_stroke(s: &mut Session, params: Value) -> Result<Value> {
     let Some(stroke) = iskra_drawing::vector_stroke(&points, &brush) else {
         return invalid("a stroke needs at least one point, and finite coordinates");
     };
+    // A line drawn by a stamped tip stays a line: a fill of its outline would lose its stamps.
+    let flatten = flatten && stroke.stamp.is_none();
     let done = s.edit(title(id), |p| {
         if p.palette.swatch(SwatchId(swatch)).is_none() {
             return invalid(format!("the palette has no swatch {swatch}"));
@@ -454,16 +469,7 @@ pub(super) fn vector_stroke(s: &mut Session, params: Value) -> Result<Value> {
             return invalid("the drawing's art layer is not vector art");
         };
         let kind = match surface {
-            // A surface keeps the stroke it was drawn from for its grain or tone, if it has
-            // them, and boils as it does.
-            true => {
-                let tracks = if stroke.marks() { vec![stroke.clone()] } else { Vec::new() };
-                iskra_model::ShapeKind::Fill(iskra_model::VectorFill {
-                    tracks,
-                    boil: stroke.boil,
-                    ..iskra_model::VectorFill::plain(iskra_drawing::surface_drawn(&stroke, &brush, &points))
-                })
-            }
+            true => iskra_drawing::surface_shape(&stroke, &brush),
             false => iskra_model::ShapeKind::Stroke(stroke),
         };
         let shape = iskra_model::VectorShape { id: art.next_id(), swatch: SwatchId(swatch), kind };
@@ -480,8 +486,20 @@ pub(super) fn vector_stroke(s: &mut Session, params: Value) -> Result<Value> {
         // Behind, it goes under them all.
         let at = if mode == PaintMode::Behind { Some(0) } else { under };
         // Flattened, it is one shape with those of its swatch it overlaps, where it is drawn:
-        // not where it goes under a protected one, nor behind.
-        match ((flatten || surface) && at.is_none()).then(|| iskra_drawing::flattened(art, &shape)).flatten() {
+        // not where it goes under a protected one, nor a line behind. A surface drawn behind
+        // still merges with its swatch's, and the one shape goes under the rest (the user's of
+        // 2026-11-23, as Moho's Blob Brush draws behind strokes).
+        let behind = mode == PaintMode::Behind;
+        let merges = (flatten || surface) && (at.is_none() || (surface && behind && under.is_none()));
+        match merges.then(|| iskra_drawing::flattened(art, &shape)).flatten() {
+            Some(flat) if behind => {
+                *art = flat.edited(|shapes| {
+                    if let Some(top) = shapes.iter().position(|other| other.id == new) {
+                        let merged = shapes.remove(top);
+                        shapes.insert(0, merged);
+                    }
+                })
+            }
             Some(flat) => *art = flat,
             None => *art = art.edited(|shapes| shapes.insert(at.unwrap_or(shapes.len()), shape)),
         }
@@ -490,6 +508,73 @@ pub(super) fn vector_stroke(s: &mut Session, params: Value) -> Result<Value> {
         Ok((drawing, Some(new)))
     })?;
     Ok(json!({ "drawing": done.0, "shape": done.1.map(|shape| shape.0) }))
+}
+
+/// Sprays copies of a vector shape along `points` on an art layer of vector art, of the drawing
+/// exposed at a frame (Moho's Scatter Brush, the user's of 2026-11-23): `scatter` says which
+/// (a preset, in `swatch`, or the vector art last cut or copied, in its own swatches), how large
+/// across they are, how far apart, and how much chance turns and flips them. The copies are laid
+/// on top, or under the lowest shape of a protected swatch they overlap, in one step.
+pub(super) fn scatter(s: &mut Session, params: Value) -> Result<Value> {
+    #[derive(Deserialize)]
+    struct Params {
+        layer: u64,
+        frame: u32,
+        #[serde(default = "line_art", rename = "artLayer")]
+        art_layer: ArtLayerKind,
+        #[serde(default)]
+        swatch: u16,
+        points: Vec<[f64; 2]>,
+        #[serde(default)]
+        scatter: iskra_drawing::Scatter,
+        #[serde(default)]
+        hold: Hold,
+        #[serde(default)]
+        protect: Vec<SwatchId>,
+    }
+    fn line_art() -> ArtLayerKind {
+        ArtLayerKind::LineArt
+    }
+    let id = "drawing.scatter";
+    let Params { layer, frame, art_layer, swatch, points, scatter, hold, protect } = parse(id, params)?;
+    let sizes = [scatter.min_size, scatter.max_size, scatter.spacing, scatter.angle_jitter];
+    if points.is_empty() || points.iter().flatten().any(|v| !v.is_finite()) || sizes.iter().any(|n| !n.is_finite() || *n < 0.0) {
+        return invalid("a scatter needs points with finite coordinates, and sizes, a spacing and an angle of 0 or more");
+    }
+    let source = match scatter.preset {
+        iskra_drawing::ScatterPreset::Clipboard => s.clipboard_shapes(),
+        preset => preset.shapes(SwatchId(swatch)),
+    };
+    if source.is_empty() {
+        return invalid("nothing is on the clipboard to scatter: cut or copy vector art first");
+    }
+    let path: Vec<iskra_model::Point> = points.iter().map(|[x, y]| iskra_model::Point::new(*x, *y)).collect();
+    let done = s.edit(title(id), |p| {
+        if scatter.preset != iskra_drawing::ScatterPreset::Clipboard && p.palette.swatch(SwatchId(swatch)).is_none() {
+            return invalid(format!("the palette has no swatch {swatch}"));
+        }
+        let of = layer_mut(p, layer)?;
+        if !of.vector.contains(&art_layer) && of.drawing_at(frame).is_none_or(|d| d.drawing.layer(art_layer).is_none_or(|art| !art.content.is_vector())) {
+            return invalid("the art layer is not vector art: make it so first (layer.setArtMode)");
+        }
+        let drawing = drawn_on_or_blank(p, layer, frame, hold)?;
+        let Some(entry) = layer_mut(p, layer)?.drawing_mut(drawing) else { return invalid(format!("no drawing {}", drawing.0)) };
+        let before = entry.clone();
+        let Some(ArtContent::Vector(art)) = entry.layer_mut(art_layer).map(|l| &mut l.content) else {
+            return invalid("the drawing's art layer is not vector art");
+        };
+        let copies = iskra_drawing::scattered(&source, &path, &scatter, art.next_id().0);
+        let count = copies.len();
+        let reach = copies.iter().map(|one| one.kind.area().bounding_box()).reduce(|all, more| all.union(more)).unwrap_or_default();
+        let under = art.shapes().iter().position(|other| protect.contains(&other.swatch) && other.kind.area().bounding_box().overlaps(reach));
+        *art = art.edited(|all| {
+            let at = under.unwrap_or(all.len());
+            all.splice(at..at, copies);
+        });
+        iskra_drawing::refit_fills(entry, &before);
+        Ok((drawing, count))
+    })?;
+    Ok(json!({ "drawing": done.0, "copies": done.1 }))
 }
 
 /// Erases along a path on an art layer of vector art, of the drawing exposed at a frame (plan
@@ -887,7 +972,8 @@ fn paint(
     let Cell { layer, frame, hold } = cell;
     let Ink { swatch, color: free, mode } = ink;
     let erase = stroke.brush.erase;
-    if stroke.points.is_empty() || stroke.points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) {
+    // A shape with no line paints its inside alone.
+    if (stroke.points.is_empty() && inside.is_none()) || stroke.points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) {
         return invalid("a stroke needs at least one point, and finite coordinates");
     }
     // The stroke as the client painted it, if it is this one: then only the brush (on free
@@ -930,7 +1016,9 @@ fn paint(
                     if let Some((rect, coverage)) = inside {
                         surface.paint_protecting(*rect, coverage, SwatchId(swatch), protect);
                     }
-                    paint_stroke_as(surface, stroke, SwatchId(swatch), protect, mode);
+                    if !stroke.points.is_empty() {
+                        paint_stroke_as(surface, stroke, SwatchId(swatch), protect, mode);
+                    }
                 }
             },
             // A picture that was placed is read again when its file changes: paint would be lost.
@@ -941,7 +1029,9 @@ fn paint(
                 if let Some((rect, coverage)) = inside {
                     marks.paint(*rect, coverage, SwatchId(swatch));
                 }
-                paint_stroke_as(&mut marks, stroke, SwatchId(swatch), &[], PaintMode::Over);
+                if !stroke.points.is_empty() {
+                    paint_stroke_as(&mut marks, stroke, SwatchId(swatch), &[], PaintMode::Over);
+                }
                 iskra_drawing::paint_rgba_shaded(surface, &marks, &shade, linear);
             }
             Some(ArtContent::Rgba(surface)) => {
@@ -956,7 +1046,9 @@ fn paint(
                         if let Some((rect, coverage)) = inside {
                             iskra_drawing::fill_rgba(surface, *rect, coverage, color);
                         }
-                        iskra_drawing::paint_rgba_as(surface, &Stroke { brush, points: stroke.points.clone() }, mode);
+                        if !stroke.points.is_empty() {
+                            iskra_drawing::paint_rgba_as(surface, &Stroke { brush, points: stroke.points.clone() }, mode);
+                        }
                     }
                 }
             }
@@ -977,6 +1069,15 @@ fn paint(
 /// or an ellipse with the swatch too. A `polyline` goes through `points`, two or more, from
 /// each to the next, and with `closed` back to the first; `filled`, it is closed and its
 /// inside is painted. The rest, `color` on free colour too, is as for `drawing.stroke`.
+///
+/// Moho's other shapes too (the user's of 2026-11-23): a `triangle` and a `star` (of `tips`
+/// points) in the rectangle between the two points, an `arrow` from its tail to its head, a
+/// `spiral` out from its middle, `from`, to `to`, its turns `spacing` pixels apart and with
+/// `counter` the other way, and a `grid` of `rows` and `columns`. With `noLine`, a filled
+/// shape's inside alone is painted, with no line round it.
+///
+/// On vector art the shape is vector shapes, its lines strokes along its own corners and
+/// curves drawn with `vectorBrush` at full pressure, and its inside a fill under them.
 pub(super) fn shape(s: &mut Session, params: Value) -> Result<Value> {
     #[derive(Deserialize)]
     struct Params {
@@ -1001,11 +1102,14 @@ pub(super) fn shape(s: &mut Session, params: Value) -> Result<Value> {
         hold: Hold,
         #[serde(default)]
         protect: Vec<SwatchId>,
+        /// What its lines are drawn with on vector art.
+        #[serde(default, rename = "vectorBrush")]
+        vector_brush: iskra_drawing::VectorBrush,
     }
     fn line_art() -> ArtLayerKind {
         ArtLayerKind::LineArt
     }
-    let Params { layer, frame, shape, from, to, points, form, brush, art_layer, swatch, color, hold, protect } = parse("drawing.shape", params)?;
+    let Params { layer, frame, shape, from, to, points, form, brush, art_layer, swatch, color, hold, protect, vector_brush } = parse("drawing.shape", params)?;
     // A polyline has its corners; any other shape its two points.
     let corners: Vec<[f64; 2]> = match (shape, from, to) {
         (iskra_drawing::Shape::Polyline, ..) if points.len() >= 2 => points,
@@ -1019,11 +1123,93 @@ pub(super) fn shape(s: &mut Session, params: Value) -> Result<Value> {
     if !form.round.is_finite() || form.round < 0.0 {
         return invalid("a rectangle's corners are rounded with a radius of 0 or more");
     }
+    if !form.spacing.is_finite() || form.spacing < 1.0 || form.tips < 3 || form.rows < 1 || form.columns < 1 {
+        return invalid("a spiral's turns are 1 pixel apart or more, a star has 3 points or more, and a grid a row and a column");
+    }
     let corners: Vec<iskra_model::Point> = corners.iter().map(|[x, y]| iskra_model::Point::new(*x, *y)).collect();
-    let stroke = shape.stroke_through(&brush, &corners, form);
+    // With no line, a filled shape's inside alone; one with nothing inside keeps its line.
+    let bare = !shape.lined(form) && !brush.erase;
+    let on_vector = {
+        let of = s.project().layer(LayerId(layer)).ok_or_else(|| crate::EngineError::Invalid(format!("no layer {layer}")))?;
+        let content = of.drawing_at(frame).and_then(|d| d.drawing.layer(art_layer)).map(|art| &art.content);
+        content.map_or(of.vector.contains(&art_layer), ArtContent::is_vector)
+    };
+    if on_vector {
+        if brush.erase {
+            return invalid("on vector art a shape is drawn, not erased with");
+        }
+        return vector_shape(s, Cell { layer, frame, hold }, art_layer, swatch, shape, &corners, form, &vector_brush, &protect);
+    }
+    let mut stroke = shape.stroke_through(&brush, &corners, form);
+    if bare {
+        stroke.points.clear();
+    }
     // An eraser takes the shape's line away, and has nothing to fill.
     let inside = shape.inside_through(&corners, form).filter(|_| !brush.erase);
     paint(s, shape.title(), Cell { layer, frame, hold }, art_layer, Ink { swatch, color, mode: PaintMode::Over }, &stroke, &protect, inside.as_ref())
+}
+
+/// [`shape`] on vector art: its lines strokes of `brush` at full pressure along the shape's own
+/// corners and curves, and a filled shape's inside one fill under them, laid on top of what is
+/// there in one step, or under the lowest shape of a protected swatch they overlap.
+#[allow(clippy::too_many_arguments)]
+fn vector_shape(
+    s: &mut Session,
+    cell: Cell,
+    art_layer: ArtLayerKind,
+    swatch: u16,
+    shape: iskra_drawing::Shape,
+    corners: &[iskra_model::Point],
+    form: iskra_drawing::Form,
+    brush: &iskra_drawing::VectorBrush,
+    protect: &[SwatchId],
+) -> Result<Value> {
+    let Cell { layer, frame, hold } = cell;
+    if !(brush.size.is_finite() && brush.size > 0.0) {
+        return invalid("the vector brush's size is a number above zero");
+    }
+    let mut kinds = Vec::new();
+    if let Some(inside) = shape.vector_inside_through(corners, form) {
+        kinds.push(iskra_model::ShapeKind::Fill(iskra_model::VectorFill::plain(inside)));
+    }
+    if shape.lined(form) {
+        for line in shape.vector_lines_through(corners, form) {
+            let points = line.elements().iter().filter(|element| !matches!(element, iskra_model::kurbo::PathEl::ClosePath)).count();
+            let even = iskra_model::VectorStroke { path: line, widths: vec![1.0; points], ..Default::default() };
+            kinds.push(iskra_model::ShapeKind::Stroke(iskra_drawing::rebrushed(&even, brush)));
+        }
+    }
+    if kinds.is_empty() {
+        return invalid("the shape has nothing to draw");
+    }
+    let done = s.edit(shape.title(), |p| {
+        if p.palette.swatch(SwatchId(swatch)).is_none() {
+            return invalid(format!("the palette has no swatch {swatch}"));
+        }
+        let drawing = drawn_on_or_blank(p, layer, frame, hold)?;
+        let Some(entry) = layer_mut(p, layer)?.drawing_mut(drawing) else { return invalid(format!("no drawing {}", drawing.0)) };
+        let before = entry.clone();
+        let Some(ArtContent::Vector(art)) = entry.layer_mut(art_layer).map(|l| &mut l.content) else {
+            return invalid("the drawing's art layer is not vector art");
+        };
+        let first = art.next_id().0;
+        let shapes: Vec<iskra_model::VectorShape> = kinds
+            .into_iter()
+            .enumerate()
+            .map(|(n, kind)| iskra_model::VectorShape { id: iskra_model::ShapeId(first + n as u32), swatch: SwatchId(swatch), kind })
+            .collect();
+        let ids: Vec<u32> = shapes.iter().map(|one| one.id.0).collect();
+        let reach = shapes.iter().map(|one| one.kind.area().bounding_box()).reduce(|all, more| all.union(more)).unwrap_or_default();
+        let under = art.shapes().iter().position(|other| protect.contains(&other.swatch) && other.kind.area().bounding_box().overlaps(reach));
+        *art = art.edited(|all| {
+            let at = under.unwrap_or(all.len());
+            all.splice(at..at, shapes);
+        });
+        // A fill it is drawn right across is cut in two along it.
+        iskra_drawing::refit_fills(entry, &before);
+        Ok((drawing, ids))
+    })?;
+    Ok(json!({ "drawing": done.0, "shapes": done.1 }))
 }
 
 /// Fills an area of the colour art of the drawing exposed at a frame with a swatch, out to

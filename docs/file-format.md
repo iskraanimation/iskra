@@ -399,11 +399,12 @@ whose colour it is painted in, and a `shape`:
   `{ "texture", "dualBrush", "seed" }`, the brush's texture and dual brush settings as a pixel
   brush keeps them, and the seed of what chance does to the second tip. Its coverage is cut by
   them when it is drawn as pixels, as the pixel brush's paint is.
-- A fill drawn as a surface by a vector brush that has a texture or a second tip has
-  `tracks`: the strokes it was drawn from, each as a `stroke` is written, with its `grain`. Its
+- A fill made of strokes with a texture or a second tip, merged by *Auto-Flatten*, has
+  `tracks`: the strokes it was made of, each as a `stroke` is written, with its `grain`. Its
   coverage is cut by the grain of each, the most any of them leaves, as a stroke's is by its
-  own. Surfaces of one swatch and one grain merged into one keep the tracks of all of them.
-  Without it a fill has no grain.
+  own. Fills of one swatch and one grain merged into one keep the tracks of all of them.
+  Without it a fill has no grain. A surface the vector Brush draws is plain: its tracks never
+  have a grain.
 - A stroke whose opacity changes along it has `opacities`, one for each point as `widths` has,
   each from 0 (none) to 1 (opaque), going evenly from point to point. Its coverage is that much
   of what it covers: at each pixel the most of the places along it whose nib reaches the
@@ -418,7 +419,32 @@ whose colour it is painted in, and a `shape`:
   own and its grain laid anew. Without it the shape is still.
 - A fill drawn as a surface by a vector brush whose opacity or colour changes has its stroke in `tracks`
   too, with its `opacities`, and is as faint as the track is near each pixel (the track's nib
-  taken nine tenths wider, for a rough edge). Such a surface is never merged with another.
+  taken nine tenths wider). Such a surface is never merged with another.
+- A stroke drawn by a stamped tip has `stamp`: `{ "tip", "spacing", "align", "jitter",
+  "drift", "buildUp", "seed" }`. `tip` is the key of a tip in the `tip` table. When the stroke is
+  drawn as pixels the tip is stamped along its middle line, in place of its outline: as wide as
+  the stroke is there, `spacing` widths apart, the first at its start; each turned with the line
+  where `align` is true, by chance up to `jitter` degrees either way, and by up to `drift`
+  degrees either way, wandering over about eight stamps; and each as faint and as drifted as the
+  stroke is there. Where stamps overlap they build up where `buildUp` is true, and are as dense
+  as the densest of them otherwise. `seed` is what chance does, the same each time it is drawn.
+  A stroke whose tip is not in the table is drawn as a plain line. Without it a stroke is its
+  outline.
+
+### `tip`
+
+The tips that strokes are stamped with, each once. Files without stamped strokes may lack the
+table; Iskra makes it in a file the first time it saves one.
+
+| Column | Type | |
+|---|---|---|
+| `key` | TEXT | The tip's key: 16 hexadecimal digits of the FNV-1a hash (64 bits) of its width and height (each a 4-byte little-endian number) and its samples in order |
+| `width`, `height` | INTEGER | Its size in pixels, at most 512 a side as Iskra makes them |
+| `data` | BLOB | Its samples, compressed |
+
+`data` is a 4-byte little-endian length followed by an LZ4 block, as a tile's is; decompressed,
+it is `width × height` samples, rows top first, each a 2-byte little-endian number from 0
+(paints nothing) to 65535 (paints fully). A tip is never taken out of the table.
 
 ## Library templates
 

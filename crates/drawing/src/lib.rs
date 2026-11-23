@@ -12,8 +12,10 @@ pub mod fonts;
 mod indexed;
 mod lasso;
 mod rgba;
+mod scatter;
 mod shade;
 mod shape;
+mod stamp;
 mod stroke;
 mod text;
 mod vector;
@@ -26,8 +28,8 @@ mod vector_trace;
 use std::collections::BTreeSet;
 
 pub use brushes::{
-    Brush, BrushKind, BrushPreset, Brushes, HeldRaster, HeldVector, InHand, MAX_TILE, OWN_GROUP, SLOTS as BRUSH_SLOTS, SURFACE_GROUP, VECTOR_GROUP,
-    builtin as builtin_brushes, presets_to_json, stroke_picture, tile_of_picture,
+    Brush, BrushKind, BrushPreset, Brushes, HeldRaster, HeldVector, InHand, MAX_TILE, OWN_GROUP, SLOTS as BRUSH_SLOTS, STAMP_GROUP, SURFACE_GROUP,
+    VECTOR_GROUP, builtin as builtin_brushes, presets_to_json, stroke_picture, tile_of_picture,
 };
 pub use curve::monotone_through;
 pub use fill::{Fill, FillError, fill, fill_free, fill_free_shaded, fill_protecting, recolour_line};
@@ -39,13 +41,15 @@ pub use photocraft_paint::{BrushSettings, Stroke, StrokePoint};
 pub use photocraft_paint::{Control, DualBrush, Dynamic, GrayTile, MaskMode, Pattern, PatternStyle, Texture, TipShape, tip_reach};
 pub use photocraft_raster::{Surface, Tile};
 pub use rgba::{LiveRgba, MixerSettings, MixerState, brush_in, fill_rgba, mix_rgba, paint_rgba, paint_rgba_as, paint_rgba_shaded};
+pub use scatter::{Scatter, ScatterPreset, scattered};
 use serde::{Deserialize, Serialize};
 pub use shade::{Area, Areas, Frame, Gradient, GradientShape, GradientStop, Picture, Placement, Shade, shaded};
 pub use shape::{Form, Shape};
+pub use stamp::{MAX_STAMP_TIP, Stamp, StampBrush, remember_tip, remember_tip_as, stamp_tip, tip, tip_key, tip_of_png};
 pub use stroke::{LiveStroke, paint_stroke, paint_stroke_as, paint_stroke_protecting};
 pub use text::{Align, Laid, Line, TextBox, TextFormat, lay_out, lay_out_with, preview_text};
 pub use vector::{Boil, Bound, Cap, Grain, Nib, ShapeId, ShapeKind, VectorArt, VectorFill, VectorShape, VectorStroke};
-pub use vector_brush::{LiveVector, VectorBrush, rebrushed, surface, surface_drawn, vector_stroke};
+pub use vector_brush::{LiveVector, VectorBrush, rebrushed, surface, surface_shape, vector_stroke};
 pub use vector_erase::{cut_overshoot, cut_vector, erase_vector, flattened, merge_picked, repaint_touched, split_piece};
 pub use vector_trace::{Trace, vectorize};
 pub mod points {

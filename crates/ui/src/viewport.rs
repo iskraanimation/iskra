@@ -170,6 +170,10 @@ pub struct Tools {
     /// On vector art, the Brush leaves surfaces, areas with no middle line merged with those of
     /// their swatch, as paint does, rather than lines with a width.
     pub surface: bool,
+    /// On vector art, the Brush sprays copies of a shape along the stroke (Moho's Scatter
+    /// Brush, the user's of 2026-11-23), as `scatter_with` says.
+    pub scatter: bool,
+    pub scatter_with: iskra_drawing::Scatter,
     /// The Select tool's box or outline, and the Cutter's, takes what is under it on every
     /// layer that is seen and can be drawn on, not only the one in hand.
     pub all_layers: bool,
@@ -314,6 +318,8 @@ impl Default for Tools {
             paint_mode: iskra_drawing::PaintMode::Over,
             auto_flatten: false,
             surface: false,
+            scatter: false,
+            scatter_with: iskra_drawing::Scatter::default(),
             all_layers: false,
             pieces: false,
             shapes: false,
@@ -419,6 +425,33 @@ enum Live {
     Mixer(LiveMixer),
     /// A vector stroke, seen over the pixels its vector art is drawn as (plan §4.16).
     Vector(iskra_drawing::LiveVector),
+    /// Copies of a shape sprayed along the stroke, seen with the art they are laid on.
+    Scatter(LiveScatter),
+}
+
+/// A stroke of the scatter brush in progress: the copies along the path so far, laid on the
+/// art as it was and drawn as pixels anew whenever another is added.
+struct LiveScatter {
+    /// The art layer's shapes as they were, and the pixels they and the copies are drawn as.
+    base: Vec<iskra_model::VectorShape>,
+    layer: IndexedSurface,
+    source: Vec<iskra_model::VectorShape>,
+    scatter: iskra_drawing::Scatter,
+    path: Vec<Point>,
+    copies: usize,
+}
+
+impl LiveScatter {
+    fn push(&mut self, points: &[StrokePoint]) {
+        self.path.extend(points.iter().filter(|p| p.x.is_finite() && p.y.is_finite()).map(|p| Point::new(p.x, p.y)));
+        let first = self.base.iter().map(|shape| shape.id.0 + 1).max().unwrap_or(1);
+        let copies = iskra_drawing::scattered(&self.source, &self.path, &self.scatter, first);
+        if copies.len() != self.copies {
+            self.copies = copies.len();
+            let all: Vec<iskra_model::VectorShape> = self.base.iter().cloned().chain(copies).collect();
+            self.layer = iskra_model::VectorArt::new(all).raster().clone();
+        }
+    }
 }
 
 /// A stroke of the mixer brush in progress on free colour. What the brush lays depends on
@@ -465,6 +498,7 @@ impl Live {
                 iskra_drawing::mix_rgba(&mut live.layer, &live.stroke, &live.settings, &mut live.carried.clone());
             }
             Live::Vector(live) => _ = live.push(points),
+            Live::Scatter(live) => live.push(points),
         }
     }
 
@@ -505,7 +539,7 @@ impl Live {
                 let (brush, points) = (live.brush().clone(), live.points().to_vec());
                 Some(painted(&brush, &points, before, ArtContent::Rgba(live.finish())))
             }
-            Live::Mixer(_) | Live::Vector(_) => None,
+            Live::Mixer(_) | Live::Vector(_) | Live::Scatter(_) => None,
         }
     }
 
@@ -516,6 +550,7 @@ impl Live {
             Live::Rgba(live) => Art::Rgba(live.layer().clone()),
             Live::Mixer(live) => Art::Rgba(live.layer.clone()),
             Live::Vector(live) => Art::Indexed(live.layer().clone()),
+            Live::Scatter(live) => Art::Indexed(live.layer.clone()),
         }
     }
 }
@@ -534,6 +569,14 @@ struct Polyline {
     corners: Vec<Point>,
     ink: [u8; 4],
     free: Option<[u8; 4]>,
+    /// On vector art, what its lines are drawn with (the user's of 2026-11-23).
+    vector: Option<iskra_drawing::VectorBrush>,
+}
+
+/// The pixel brush a vector shape is seen drawn with while it is drawn: as wide as the vector
+/// brush, solid. The engine makes the vector strokes when it is let go.
+fn seen_as_pixels(vector: &iskra_drawing::VectorBrush) -> BrushSettings {
+    BrushSettings { size: vector.size, hardness: 1.0, pressure_size: false, ..BrushSettings::default() }
 }
 
 /// From a layer's drawing to the screen and back: through the pegs that place it, the bend its
@@ -642,6 +685,8 @@ struct ActiveStroke {
     flatten: bool,
     /// On vector art, left as a surface.
     surface: bool,
+    /// On vector art, the scatter brush's copies sprayed along it, as these say.
+    scatter: Option<iskra_drawing::Scatter>,
 }
 
 /// How many frames ahead of the playhead are made for the cache on each frame of the screen,
@@ -1151,6 +1196,8 @@ struct TileTexture {
 #[derive(Default)]
 pub struct Viewport {
     pub view: View,
+    /// The vector shapes last cut or copied, which the scatter brush sprays from the clipboard.
+    scatter_clipboard: Vec<iskra_model::VectorShape>,
     /// The point editor's shape and picked points.
     pub points: crate::points::PointEditor,
     /// The Text tool's box being typed in, and the press it is making.
@@ -1810,6 +1857,10 @@ impl Viewport {
         pen: Option<PenSample>,
     ) -> Option<(&'static str, Value)> {
         let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::drag());
+        // What the scatter brush sprays from the clipboard, taken as a stroke begins.
+        if tools.scatter && tools.scatter_with.preset == iskra_drawing::ScatterPreset::Clipboard && self.stroke.is_none() {
+            self.scatter_clipboard = session.clipboard_shapes();
+        }
         // What the last frame's stroke or drag left is in the project by now.
         (self.landed, self.dropped) = (None, None);
         let rect = response.rect;
@@ -2174,7 +2225,7 @@ impl Viewport {
                     None
                 } else if tool == Tool::Shape && tools.shape == Drawn::Polyline && !pen.is_some_and(|p| p.eraser) {
                     (self.stroke, self.marquee) = (None, None);
-                    self.polyline_input(ui, &response, current, tools, &brush.raster.brush, panning)
+                    self.polyline_input(ui, &response, current, tools, brush, panning)
                 } else {
                     (self.marquee, self.polyline) = (None, None);
                     let _timer = crate::timings::timer("viewport: pen input");
@@ -3104,9 +3155,10 @@ impl Viewport {
         response: &egui::Response,
         current: Option<(&Layer, Placement)>,
         tools: &Tools,
-        in_hand: &BrushSettings,
+        held: &iskra_drawing::InHand,
         panning: bool,
     ) -> Option<(&'static str, Value)> {
+        let in_hand = &held.raster.brush;
         let Some((layer, place, to_pixels)) = current.and_then(|(layer, place)| Some((layer, place, place.to_pixels?))) else {
             self.polyline = None;
             return None;
@@ -3145,19 +3197,24 @@ impl Viewport {
                 let mut brush = BrushSettings { size: in_hand.size * finer, erase: false, ..in_hand.clone() };
                 brush.dual_brush.size *= finer;
                 brush.seed = ui.input(|i| i.time).to_bits();
+                // On vector art, the vector brush in hand, seen as pixels until it is let go.
+                let vector =
+                    draws_vector(layer, tools).then(|| iskra_drawing::VectorBrush { size: held.vector.brush.size * finer, ..held.vector.brush.clone() });
+                if let Some(vector) = &vector {
+                    brush = seen_as_pixels(vector);
+                }
                 let before = match layer.drawing_at(tools.frame).and_then(|d| d.drawing.layer(tools.art)).map(|l| &l.content) {
                     Some(ArtContent::Indexed(surface)) => Art::Indexed(surface.clone()),
                     Some(ArtContent::Rgba(_)) if layer.is_picture(tools.art) => return None,
                     Some(ArtContent::Rgba(surface)) => Art::Rgba(surface.clone()),
-                    // Shapes are not drawn on vector art yet (plan §4.16).
-                    Some(ArtContent::Vector(_)) => return None,
-                    None if layer.vector.contains(&tools.art) => return None,
+                    Some(ArtContent::Vector(art)) => Art::Indexed(art.raster().clone()),
+                    None if layer.vector.contains(&tools.art) => Art::Indexed(IndexedSurface::new()),
                     None if layer.free_colour.contains(&tools.art) => Art::Rgba(iskra_drawing::free_colour()),
                     None => Art::Indexed(IndexedSurface::new()),
                 };
                 let free = tools.free.filter(|_| matches!(before, Art::Rgba(_)));
                 let (layer, frame, art, swatch, ink) = (layer.id, tools.frame, tools.art, tools.swatch, self.ink);
-                self.polyline = Some(Polyline { layer, frame, art, swatch, brush, before, corners: Vec::new(), ink, free });
+                self.polyline = Some(Polyline { layer, frame, art, swatch, brush, before, corners: Vec::new(), ink, free, vector });
             }
             let line = self.polyline.as_mut()?;
             // A click on the first corner closes it; one where the last is adds nothing.
@@ -3184,6 +3241,9 @@ impl Viewport {
                 params.extend(form);
             }
             (params["points"], params["color"], params["brush"], params["protect"]) = (json!(corners), json!(line.free), brush, json!(self.protect));
+            if let Some(vector) = &line.vector {
+                params["vectorBrush"] = serde_json::to_value(vector).ok()?;
+            }
             return Some(("drawing.shape", params));
         }
         // The line so far, and on to where the pointer is.
@@ -3204,7 +3264,10 @@ impl Viewport {
         let inside = Drawn::Polyline.inside_through(corners, form);
         let under = inside.map(|(rect, coverage)| line.before.painted(rect, &coverage, line.swatch, line.ink, protected));
         let mut live = Live::start(under.as_ref().unwrap_or(&line.before), &drawn.brush, line.swatch, line.ink, protected);
-        live.push(&drawn.points);
+        // With no line, the inside alone.
+        if Drawn::Polyline.lined(form) {
+            live.push(&drawn.points);
+        }
         live.art()
     }
 
@@ -3360,11 +3423,8 @@ impl Viewport {
             brush.seed = ui.input(|i| i.time).to_bits();
             let content = layer.drawing_at(tools.frame).and_then(|d| d.drawing.layer(tools.art)).map(|l| &l.content);
             // Vector art is drawn with vector strokes and erased by cutting them (plan §4.16);
-            // the shapes don't work on it yet.
+            // a shape on it is vector strokes too, seen as pixels while it is drawn.
             let on_vector = draws_vector(layer, tools);
-            if on_vector && !erase && tools.tool == Tool::Shape {
-                return None;
-            }
             // The vector brush's size is in scene units, as the raster brush's is, and how far
             // its line may stray is in pixels of the screen.
             let vector = on_vector.then(|| {
@@ -3405,6 +3465,14 @@ impl Viewport {
             crate::timings::stroke_began();
             // The Brush draws behind or repaints, as its bar says; the shapes and erasing don't.
             let mode = if tools.tool == Tool::Brush && !erase { tools.paint_mode } else { iskra_drawing::PaintMode::Over };
+            // The scatter brush, on vector art: its copies as large and as far apart on screen as
+            // the bar says, and its chance its own a stroke.
+            let scattering = on_vector && !erase && tools.tool == Tool::Brush && tools.scatter;
+            let scatter = scattering.then(|| {
+                let (with, finer) = (tools.scatter_with, f64::from(finer));
+                let seed = ui.input(|i| i.time).to_bits();
+                iskra_drawing::Scatter { min_size: with.min_size * finer, max_size: with.max_size * finer, spacing: with.spacing * finer, seed, ..with }
+            });
             let live = match (&art, &mixer, &vector) {
                 // The vector eraser is seen as pixels erased, until the engine cuts the shapes.
                 (Art::Indexed(surface), _, Some(vector)) if erase => {
@@ -3412,9 +3480,22 @@ impl Viewport {
                         BrushSettings { size: vector.size, hardness: 1.0, pressure_size: vector.pressure_size, erase: true, ..BrushSettings::default() };
                     Live::start(&Art::Indexed(surface.clone()), &eraser, tools.swatch, ink, &self.protect)
                 }
+                // The scatter brush's copies, laid on the shapes there.
+                (Art::Indexed(surface), _, Some(_)) if scattering => {
+                    let base = match content {
+                        Some(ArtContent::Vector(art)) => art.shapes().to_vec(),
+                        _ => Vec::new(),
+                    };
+                    let source = match tools.scatter_with.preset {
+                        iskra_drawing::ScatterPreset::Clipboard => self.scatter_clipboard.clone(),
+                        preset => preset.shapes(tools.swatch),
+                    };
+                    let scatter = scatter.unwrap_or_default();
+                    Live::Scatter(LiveScatter { base, layer: surface.clone(), source, scatter, path: Vec::new(), copies: 0 })
+                }
                 (Art::Indexed(surface), _, Some(vector)) => {
                     let live = iskra_drawing::LiveVector::new(surface, vector, tools.swatch).protecting(self.protect.clone()).in_mode(mode);
-                    Live::Vector(live.leaving_surface(tools.surface && tools.tool == Tool::Brush))
+                    Live::Vector(live)
                 }
                 (Art::Rgba(surface), Some((settings, carried)), _) => Live::mixing(surface, &brush, settings.clone(), carried.clone()),
                 _ => Live::start_as(&art, &brush, tools.swatch, ink, &self.protect, mode),
@@ -3424,7 +3505,8 @@ impl Viewport {
                 let [x, y] = self.view.to_scene(response.rect.center(), pos);
                 let at = self.drawn(to_pixels.apply(Point::new(x, y)));
                 // The corners are as round on screen as the bar says, as the brush is as wide.
-                (tools.shape, [at, at], iskra_model::Form { round: tools.form.round * f64::from(finer), ..tools.form }, art)
+                let finer = f64::from(finer);
+                (tools.shape, [at, at], iskra_model::Form { round: tools.form.round * finer, spacing: tools.form.spacing * finer, ..tools.form }, art)
             });
             // With a guide in hand, a stroke by hand goes along a line of it from where it began;
             // its heading is taken once the pen has gone a few points on the screen.
@@ -3458,6 +3540,7 @@ impl Viewport {
                 mode,
                 flatten: tools.auto_flatten && tools.tool == Tool::Brush,
                 surface: tools.surface && tools.tool == Tool::Brush,
+                scatter,
             });
         }
         let stroke = self.stroke.as_mut()?;
@@ -3476,11 +3559,15 @@ impl Viewport {
                 }
                 form.even = ui.input(|i| i.modifiers.shift) && stroke.snap.is_none();
             }
-            let drawn = shape.stroke(&stroke.brush, *from, *to, *form);
-            // A filled shape's inside is painted first, and its line over that.
+            // On vector art, seen drawn with a solid brush as wide as the vector brush.
+            let seen = stroke.vector.as_ref().map_or_else(|| stroke.brush.clone(), seen_as_pixels);
+            let drawn = shape.stroke(&seen, *from, *to, *form);
+            // A filled shape's inside is painted first, and its line over that, unless it has none.
             let under = shape.inside(*from, *to, *form).map(|(rect, coverage)| before.painted(rect, &coverage, stroke.swatch, stroke.ink, &self.protect));
             stroke.live = Live::start(under.as_ref().unwrap_or(before), &drawn.brush, stroke.swatch, stroke.ink, &self.protect);
-            stroke.live.push(&drawn.points);
+            if shape.lined(*form) {
+                stroke.live.push(&drawn.points);
+            }
             return None;
         }
         if down {
@@ -3533,10 +3620,18 @@ impl Viewport {
                 params.extend(form);
             }
             (params["brush"], params["protect"]) = (brush, json!(self.protect));
+            if let Some(vector) = &stroke.vector {
+                params["vectorBrush"] = serde_json::to_value(vector).ok()?;
+            }
             return Some(("drawing.shape", params));
         }
         if stroke.points.is_empty() {
             return None;
+        }
+        if let Some(scatter) = stroke.scatter {
+            let points: Vec<[f64; 2]> = stroke.points.iter().map(|p| [p.x, p.y]).collect();
+            let params = json!({ "layer": layer, "frame": frame, "artLayer": stroke.art, "swatch": swatch, "points": points, "scatter": scatter, "protect": self.protect });
+            return Some(("drawing.scatter", params));
         }
         if let Some(brush) = stroke.vector {
             if stroke.brush.erase {

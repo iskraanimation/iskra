@@ -671,7 +671,17 @@ fn piece(stroke: &VectorStroke, from: Place, to: Place, cut: Cap) -> Option<Vect
     }
     let length: f64 = path.segments().map(|segment| segment.arclen(0.1)).sum();
     let [widths, opacities, drifts] = values;
-    (length >= 0.5).then_some(VectorStroke { path, widths, nib: stroke.nib, caps, grain: stroke.grain.clone(), opacities, drifts, boil: stroke.boil })
+    (length >= 0.5).then_some(VectorStroke {
+        path,
+        widths,
+        nib: stroke.nib,
+        caps,
+        grain: stroke.grain.clone(),
+        opacities,
+        drifts,
+        boil: stroke.boil,
+        stamp: stroke.stamp.clone(),
+    })
 }
 
 #[cfg(test)]

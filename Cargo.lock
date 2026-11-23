@@ -2068,6 +2068,7 @@ dependencies = [
  "iskra-vectorcraft-pathops",
  "iskra-vectorcraft-trace",
  "kurbo 0.13.1",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "skrifa 0.44.0",

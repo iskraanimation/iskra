@@ -413,16 +413,31 @@ impl IndexedSurface {
 
     /// Paint `other` over this surface, each pixel with its own swatch (pasting a selection).
     pub fn stamp(&mut self, other: &IndexedSurface) {
+        // On nothing, it is what it is.
+        if self.is_empty() {
+            *self = other.clone();
+            return;
+        }
         let pixels: Vec<(i32, i32, IndexedPixel)> = other.painted().collect();
         for (x, y, pixel) in pixels {
             self.set(x, y, over(self.pixel(x, y), pixel.swatch, to_unit(pixel.coverage)));
         }
     }
 
+    /// The surface moved by `dx` and `dy` whole pixels, tile by tile.
+    pub fn translated(&self, dx: i32, dy: i32) -> IndexedSurface {
+        IndexedSurface { surface: self.surface.translated(dx, dy, self.bounds()) }
+    }
+
     /// The surface moved, scaled or turned by `transform`: each new pixel is read back from
     /// where it came from, with coverage interpolated and the swatch that contributes most.
     /// A whole-pixel move is exact.
     pub fn transformed(&self, transform: &Affine) -> IndexedSurface {
+        // Moved by whole pixels: its tiles copied across, not each pixel read back.
+        let [a, b, c, d, e, f] = transform.m;
+        if [a, b, c, d] == [1.0, 0.0, 0.0, 1.0] && e.fract() == 0.0 && f.fract() == 0.0 && e.abs() < 1e9 && f.abs() < 1e9 {
+            return self.translated(e as i32, f as i32);
+        }
         let mut out = IndexedSurface::new();
         let (bounds, Some(inverse)) = (self.bounds(), transform.inverse()) else { return out };
         if bounds.is_empty() {

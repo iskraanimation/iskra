@@ -64,6 +64,51 @@ const VECTOR_TABLE: &str = "
     ) WITHOUT ROWID;
 ";
 
+/// The tips that vector strokes are stamped with (the user's of 2026-11-23), each once, by its
+/// key: its width and height and its samples, `u16` in native byte order, compressed. Files
+/// without it have no stamped strokes, and it is made in them by their first save.
+const TIP_TABLE: &str = "
+    CREATE TABLE IF NOT EXISTS tip (
+        key    TEXT PRIMARY KEY,
+        width  INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        data   BLOB NOT NULL
+    ) WITHOUT ROWID;
+";
+
+/// Whether the file has the table of tips.
+fn has_tip_table(conn: &Connection) -> bool {
+    conn.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tip'", [], |_| Ok(())).is_ok()
+}
+
+/// Put the tips the file keeps in the table of tips, where vector strokes find them. One that
+/// can't be read is skipped and reported: its strokes are drawn as plain lines.
+fn read_tips(conn: &Connection, report: &mut LoadReport) -> Result<()> {
+    if !has_tip_table(conn) {
+        return Ok(());
+    }
+    let mut select = conn.prepare("SELECT key, width, height, data FROM tip")?;
+    let rows = select.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, Vec<u8>>(3)?)))?;
+    for row in rows {
+        let Ok((key, width, height, data)) = row else { continue };
+        let samples = (width.max(0) * height.max(0)) as usize;
+        let tile = (width > 0 && height > 0 && width <= 4096 && height <= 4096)
+            .then(|| lz4_flex::decompress_size_prepended(&data).ok())
+            .flatten()
+            .filter(|bytes| bytes.len() == samples * 2)
+            .map(|bytes| iskra_drawing::GrayTile {
+                width: width as u32,
+                height: height as u32,
+                data: bytes.as_chunks::<2>().0.iter().map(|pair| u16::from_le_bytes(*pair)).collect::<Vec<u16>>().into(),
+            });
+        match tile {
+            Some(tile) => iskra_drawing::remember_tip_as(&key, &tile),
+            None => report.skipped.push(format!("tip {key}: it can't be read, so its strokes are drawn as plain lines")),
+        }
+    }
+    Ok(())
+}
+
 /// The most a stored art layer of vector art may hold once decompressed, so that a damaged size
 /// can't ask for gigabytes.
 const MOST_VECTOR_BYTES: usize = 256 << 20;
@@ -212,6 +257,22 @@ impl SqliteStore {
         let tx = self.conn.transaction()?;
         {
             tx.execute_batch(VECTOR_TABLE)?;
+            tx.execute_batch(TIP_TABLE)?;
+            let mut has_tip = tx.prepare("SELECT 1 FROM tip WHERE key = ?1")?;
+            let mut insert_tip = tx.prepare("INSERT OR IGNORE INTO tip (key, width, height, data) VALUES (?1, ?2, ?3, ?4)")?;
+            // The tips of the vector art written: each once, kept by the file for good.
+            let mut tips_known = std::collections::HashSet::new();
+            let mut write_tips = |art: &iskra_model::VectorArt| -> rusqlite::Result<()> {
+                for key in art.tips() {
+                    if !tips_known.insert(key.clone()) || has_tip.exists([&key])? {
+                        continue;
+                    }
+                    let Some(tile) = iskra_drawing::tip(&key) else { continue };
+                    let bytes: Vec<u8> = tile.data.iter().flat_map(|sample| sample.to_le_bytes()).collect();
+                    insert_tip.execute(params![key, i64::from(tile.width), i64::from(tile.height), lz4_flex::compress_prepend_size(&bytes)])?;
+                }
+                Ok(())
+            };
             let mut upsert = tx.prepare("INSERT OR REPLACE INTO tile (drawing, layer, tx, ty, data) VALUES (?1, ?2, ?3, ?4, ?5)")?;
             let mut delete = tx.prepare("DELETE FROM tile WHERE drawing = ?1 AND layer = ?2 AND tx = ?3 AND ty = ?4")?;
             let mut delete_tile_layers = tx.prepare("DELETE FROM tile WHERE drawing = ?1 AND layer >= ?2")?;
@@ -251,6 +312,7 @@ impl SqliteStore {
                             // Its shapes are written whole, as they are small.
                             if before != Some(&layer.content) {
                                 upsert_vector.execute(params![id.0 as i64, index as i64, lz4_flex::compress_prepend_size(art.to_json().as_bytes())])?;
+                                write_tips(art)?;
                                 report.vectors_written += 1;
                             }
                             continue;
@@ -327,6 +389,7 @@ pub(crate) fn read_structure(conn: &Connection, version: i64) -> std::result::Re
 /// filled. A tile or a layer of vector art that can't be read is skipped and reported, so one
 /// bad tile doesn't cost the rest.
 pub(crate) fn read_drawings(conn: &Connection, drawings: &[PoolDrawing], report: &mut LoadReport) -> Result<HashMap<DrawingId, Arc<Drawing>>> {
+    read_tips(conn, report)?;
     let mut select = conn.prepare("SELECT layer, tx, ty, data FROM tile WHERE drawing = ?1")?;
     let mut select_vector = if has_vector_table(conn) { Some(conn.prepare("SELECT layer, data FROM vector WHERE drawing = ?1")?) } else { None };
     let mut read = HashMap::new();
@@ -463,6 +526,11 @@ impl ProjectStore for SqliteStore {
                 let has_vector = tx.query_row("SELECT 1 FROM source.sqlite_master WHERE type = 'table' AND name = 'vector'", [], |_| Ok(())).is_ok();
                 let mut vector =
                     if has_vector { Some(tx.prepare("INSERT INTO vector SELECT drawing, layer, data FROM source.vector WHERE drawing = ?1")?) } else { None };
+                // Their strokes' tips, which only this file keeps.
+                if tx.query_row("SELECT 1 FROM source.sqlite_master WHERE type = 'table' AND name = 'tip'", [], |_| Ok(())).is_ok() {
+                    tx.execute_batch(TIP_TABLE)?;
+                    tx.execute("INSERT OR IGNORE INTO tip SELECT key, width, height, data FROM source.tip", [])?;
+                }
                 for id in &in_file {
                     tiles.execute([id.0 as i64])?;
                     if let Some(vector) = &mut vector {
@@ -570,6 +638,48 @@ mod tests {
             kind: iskra_model::ShapeKind::Stroke(iskra_model::VectorStroke::even(path, width)),
         };
         drawing.layer_mut(ArtLayerKind::LineArt).unwrap().content = ArtContent::Vector(iskra_model::VectorArt::new(vec![stroke]));
+    }
+
+    #[test]
+    fn a_stamped_strokes_tip_is_kept_once_in_the_file_and_read_back() {
+        let (_dir, path) = file();
+        let mut first = project(2);
+        with_vector_line(&mut first, 0, 12.0);
+        with_vector_line(&mut first, 1, 20.0);
+        // A tip of its own, which no other test keeps: both strokes stamped with it.
+        let tile = iskra_drawing::GrayTile::from_fn(37, 23, |x, y| ((x * 7 + y * 3) % 11) as f32 / 10.0);
+        let key = iskra_drawing::remember_tip(&tile);
+        for index in [0, 1] {
+            let layer = Arc::make_mut(&mut Arc::make_mut(&mut first.shots[0]).layers[0]);
+            let content = &mut Arc::make_mut(&mut layer.drawings[index].drawing).layer_mut(ArtLayerKind::LineArt).unwrap().content;
+            let ArtContent::Vector(art) = content else { panic!("vector art") };
+            *art = art.edited(|shapes| {
+                let iskra_model::ShapeKind::Stroke(stroke) = &mut shapes[0].kind else { panic!("a stroke") };
+                stroke.stamp =
+                    Some(Box::new(iskra_drawing::Stamp { tip: key.clone(), spacing: 0.3, align: true, jitter: 20.0, drift: 0.0, build_up: false, seed: 4 }));
+            });
+        }
+        let first = Arc::new(first);
+        let store = SqliteStore::create(&path, &first).unwrap();
+        let (width, height, data): (i64, i64, Vec<u8>) =
+            store.conn.query_row("SELECT width, height, data FROM tip WHERE key = ?1", [&key], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!((width, height), (37, 23));
+        let samples: Vec<u16> = lz4_flex::decompress_size_prepended(&data).unwrap().as_chunks::<2>().0.iter().map(|p| u16::from_le_bytes(*p)).collect();
+        assert_eq!(&samples[..], &tile.data[..]);
+        assert_eq!(store.conn.query_row("SELECT count(*) FROM tip", [], |r| r.get::<_, i64>(0)).unwrap(), 1, "kept once for both strokes");
+        drop(store);
+        // Read back, the strokes are stamped as they were drawn.
+        assert_eq!(SqliteStore::open_whole(&path).unwrap().1, first);
+        // A tip the file alone keeps is put in the table of tips when the file is read.
+        let conn = Connection::open(&path).unwrap();
+        let only = lz4_flex::compress_prepend_size(&[0u8, 0, 255, 255]);
+        conn.execute("INSERT INTO tip (key, width, height, data) VALUES ('only-in-the-file', 2, 1, ?1)", [only]).unwrap();
+        conn.execute("INSERT INTO tip (key, width, height, data) VALUES ('damaged', 2, 1, x'00')", []).unwrap();
+        drop(conn);
+        let mut report = LoadReport::default();
+        read_tips(&Connection::open(&path).unwrap(), &mut report).unwrap();
+        assert_eq!(iskra_drawing::tip("only-in-the-file").unwrap().data[..], [0, 65535]);
+        assert!(iskra_drawing::tip("damaged").is_none() && report.skipped.len() == 1, "{:?}", report.skipped);
     }
 
     #[test]
@@ -951,6 +1061,10 @@ mod tests {
     fn save_as_takes_the_shots_that_are_not_loaded_from_the_old_file() {
         let (dir, path) = file();
         let (mut store, opened, whole) = film(&path);
+        // A tip kept by the old file, for a shot that is not loaded: the copy keeps it too.
+        store.conn.execute_batch(TIP_TABLE).unwrap();
+        let one = lz4_flex::compress_prepend_size(&[255u8, 255]);
+        store.conn.execute("INSERT INTO tip (key, width, height, data) VALUES ('of-the-old-file', 1, 1, ?1)", [one]).unwrap();
         let mut next = with_shot_loaded(&mut store, &opened, 1);
         Arc::make_mut(&mut next.shots[1]).name = "Closing".to_string();
         let next = Arc::new(next);
@@ -961,6 +1075,8 @@ mod tests {
         assert!(matches!(store.save_as(&path, &next), Err(StoreError::NotAProject { .. })), "never onto the file it reads from");
         drop((store, copy));
 
+        let tips = Connection::open(&copy_path).unwrap().query_row("SELECT count(*) FROM tip WHERE key = 'of-the-old-file'", [], |r| r.get::<_, i64>(0));
+        assert_eq!(tips.unwrap(), 1);
         let (_, reopened, report) = SqliteStore::open_whole(&copy_path).unwrap();
         assert_eq!(report, LoadReport::default());
         assert_eq!(reopened.shots[0].layers, whole.shots[0].layers, "the shot that was only in the old file");
