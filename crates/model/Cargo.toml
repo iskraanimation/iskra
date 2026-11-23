@@ -1,0 +1,19 @@
+[package]
+name = "iskra-model"
+description = "The Iskra project document (serde data)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+effectcraft-keyframe = { workspace = true }
+effectcraft-time = { workspace = true }
+iskra-drawing = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

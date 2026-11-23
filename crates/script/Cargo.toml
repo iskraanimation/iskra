@@ -1,0 +1,19 @@
+[package]
+name = "iskra-script"
+description = "Iskra's scripting (plan §9): JavaScript on the boa engine, editing a session through its commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-engine = { workspace = true }
+boa_engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

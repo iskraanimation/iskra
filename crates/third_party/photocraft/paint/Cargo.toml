@@ -1,0 +1,25 @@
+# Vendored from PhotoCraft (crates/paint) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-photocraft-paint"
+description = "Raster brush engine (vendored photocraft-paint)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "photocraft_paint"
+
+[lints]
+workspace = true
+
+[dependencies]
+photocraft-geom = { workspace = true }
+photocraft-color = { workspace = true }
+photocraft-raster = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

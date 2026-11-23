@@ -1,0 +1,22 @@
+# Vendored from EffectCraft (crates/color) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-effectcraft-color"
+description = "Colour spaces and blend modes (vendored effectcraft-color)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "effectcraft_color"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

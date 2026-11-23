@@ -1,0 +1,26 @@
+# Vendored from EffectCraft (crates/keyframe) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-effectcraft-keyframe"
+description = "Keyframes, temporal ease, spatial Bezier motion paths (vendored effectcraft-keyframe)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "effectcraft_keyframe"
+
+[lints]
+workspace = true
+
+[dependencies]
+effectcraft-time = { workspace = true }
+effectcraft-geom = { workspace = true }
+effectcraft-color = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

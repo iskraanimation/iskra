@@ -1,0 +1,22 @@
+[package]
+name = "iskra-gpu"
+description = "The wgpu compositor: frames made on the GPU, held against the CPU reference"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-drawing = { workspace = true }
+iskra-eval = { workspace = true }
+iskra-model = { workspace = true }
+iskra-render = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }
+
+[dev-dependencies]
+iskra-drawing = { workspace = true }
+iskra-model = { workspace = true }

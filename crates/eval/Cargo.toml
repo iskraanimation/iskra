@@ -1,0 +1,13 @@
+[package]
+name = "iskra-eval"
+description = "Evaluates a shot's node graph: what is seen on a frame, and where"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-model = { workspace = true }

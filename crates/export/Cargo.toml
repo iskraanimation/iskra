@@ -1,0 +1,30 @@
+[package]
+name = "iskra-export"
+description = "Export: a shot rendered to image sequences, and later to movies"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-audio = { workspace = true }
+iskra-model = { workspace = true }
+filmcraft-aac = { workspace = true }
+filmcraft-h264enc = { workspace = true }
+filmcraft-isobmff = { workspace = true }
+filmcraft-prores = { workspace = true }
+iskra-render = { workspace = true }
+image = { workspace = true, features = ["exr"] }
+krilla = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+skrifa = { workspace = true }
+vello_cpu = { workspace = true }
+
+[dev-dependencies]
+iskra-drawing = { workspace = true }
+tempfile = { workspace = true }

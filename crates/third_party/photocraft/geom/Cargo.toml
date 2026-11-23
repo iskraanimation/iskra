@@ -1,0 +1,19 @@
+# Vendored from PhotoCraft (crates/geom) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-photocraft-geom"
+description = "2D geometry: points, rects, transforms, warps (vendored photocraft-geom)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "photocraft_geom"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }

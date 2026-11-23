@@ -1,0 +1,21 @@
+[package]
+name = "iskra-store"
+description = "Project files: the ProjectStore trait, the SQLite backend, backups and the integrity check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-drawing = { workspace = true }
+iskra-model = { workspace = true }
+lz4_flex = { workspace = true }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

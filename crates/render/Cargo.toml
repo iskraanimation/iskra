@@ -1,0 +1,19 @@
+[package]
+name = "iskra-render"
+description = "The CPU compositor: the reference for what a frame looks like"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+effectcraft-raster = { workspace = true }
+iskra-drawing = { workspace = true }
+iskra-eval = { workspace = true }
+iskra-model = { workspace = true }
+
+[dev-dependencies]
+iskra-io = { workspace = true }

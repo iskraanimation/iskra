@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Iskra's icon: a spark, four black arms that end in spikes, about a small white star
+       where they meet, cut out of a white hexagon on a black square of round corners. Drawn
+       for Iskra, after the user's own sketch; the PNG and the ICO beside it are made from it
+       by `cargo xtask icon`. -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#000000"/>
+  <path d="M 150 512 L 330 200 L 694 200 L 874 512 L 694 824 L 330 824 Z" fill="#ffffff" stroke="#ffffff" stroke-width="64" stroke-linejoin="round"/>
+  <!-- Up, right, down and left: each from its spike out at the hexagon to a notch at the middle. -->
+  <g fill="#000000">
+    <path d="M 512 172 L 579 436 L 512 462 L 445 436 Z"/>
+    <path d="M 852 512 L 588 579 L 562 512 L 588 445 Z"/>
+    <path d="M 512 852 L 445 588 L 512 562 L 579 588 Z"/>
+    <path d="M 172 512 L 436 445 L 462 512 L 436 579 Z"/>
+  </g>
+</svg>

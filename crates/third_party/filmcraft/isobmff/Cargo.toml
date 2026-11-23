@@ -1,0 +1,25 @@
+# Vendored from FilmCraft (crates/isobmff) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-filmcraft-isobmff"
+description = "MP4 and QuickTime MOV muxer and demuxer (vendored filmcraft-isobmff)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "filmcraft_isobmff"
+
+[lints]
+workspace = true
+
+[dependencies]
+filmcraft-bitstream = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+filmcraft-testkit = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }

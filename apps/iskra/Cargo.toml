@@ -1,0 +1,38 @@
+[package]
+name = "iskra"
+description = "Iskra: an open-source 2D animation app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-audio = { workspace = true }
+iskra-engine = { workspace = true }
+cpal = { workspace = true }
+iskra-ui = { workspace = true }
+# Pen pressure and tilt on macOS and X11, which winit drops.
+photocraft-tablet = { workspace = true }
+# What there is to read a pen by on Windows, for the log.
+iskra-tablet-windows = { workspace = true }
+# To ask, before the window opens, whether the API the preferences name finds a card.
+pollster = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11"] }
+
+# The icon and the name in `iskra.exe`, on Windows; see `build.rs`. Not for Windows alone, so
+# that a build for Windows made elsewhere has it too.
+[build-dependencies]
+winresource = "0.1"
+
+# winit only to turn off its default macOS menu, whose Quit ends the app without asking; muda
+# to make the menu bar that stands in its place, with a Quit that asks.
+# The window's handle, for the tablet driver's WinTab to open a context on.
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.21.2", default-features = false }
+winit = { version = "0.30", default-features = false }

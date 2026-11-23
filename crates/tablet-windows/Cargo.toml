@@ -1,0 +1,19 @@
+[package]
+name = "iskra-tablet-windows"
+description = "Pen tablets on Windows: what the system and the tablet's driver report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# The workspace's lints but one: this crate calls the system and the tablet driver, which
+# takes `unsafe` (decided 2026-10-19, beside photocraft-tablet's macos.rs).
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }

@@ -1,0 +1,28 @@
+[package]
+name = "iskra-engine"
+description = "The headless Iskra engine: session, command registry, undo history"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-drawing = { workspace = true }
+iskra-eval = { workspace = true }
+iskra-export = { workspace = true }
+iskra-io = { workspace = true }
+iskra-model = { workspace = true }
+iskra-render = { workspace = true }
+iskra-store = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+photocraft-psd = { workspace = true }
+image = { workspace = true }
+iskra-audio = { workspace = true }
+tempfile = { workspace = true }

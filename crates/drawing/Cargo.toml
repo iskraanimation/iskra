@@ -1,0 +1,25 @@
+[package]
+name = "iskra-drawing"
+description = "Drawings and their art layers: indexed and RGBA pixel surfaces"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+harfrust = { workspace = true }
+kurbo = { workspace = true }
+photocraft-color = { workspace = true }
+photocraft-geom = { workspace = true }
+photocraft-paint = { workspace = true }
+photocraft-raster = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+skrifa = { workspace = true }
+vectorcraft-geom = { workspace = true }
+vectorcraft-pathops = { workspace = true }
+vectorcraft-trace = { workspace = true }
+vello_cpu = { workspace = true }

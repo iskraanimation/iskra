@@ -1,0 +1,21 @@
+# Vendored from FilmCraft (crates/bitstream) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-filmcraft-bitstream"
+description = "Bit readers and writers (vendored filmcraft-bitstream)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "filmcraft_bitstream"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }

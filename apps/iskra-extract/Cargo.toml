@@ -1,0 +1,20 @@
+[package]
+name = "iskra-extract"
+description = "Recovers the drawings, timing and palette from an Iskra project or backup file"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-io = { workspace = true }
+iskra-store = { workspace = true }
+
+[dev-dependencies]
+iskra-drawing = { workspace = true }
+iskra-model = { workspace = true }
+rusqlite = { workspace = true }
+tempfile = { workspace = true }

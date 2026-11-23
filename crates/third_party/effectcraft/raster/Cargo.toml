@@ -1,0 +1,21 @@
+# Vendored from EffectCraft (crates/raster) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-effectcraft-raster"
+description = "f32 premultiplied RGBA images: sampling, warps, blurs (vendored effectcraft-raster)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "effectcraft_raster"
+
+[lints]
+workspace = true
+
+[dependencies]
+effectcraft-geom = { workspace = true }
+effectcraft-color = { workspace = true }
+rayon = { workspace = true }

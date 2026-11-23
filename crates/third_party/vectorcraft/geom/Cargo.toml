@@ -1,0 +1,28 @@
+# Vendored from VectorCraft (crates/geom) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-vectorcraft-geom"
+description = "Vector geometry over kurbo: paths, shapes, hit testing, snapping (vendored vectorcraft-geom)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+# tests/prop_geom.rs needs vectorcraft-testkit, which brings VectorCraft's whole document and
+# renderer, so it is not built here.
+autotests = false
+
+[lib]
+name = "vectorcraft_geom"
+
+[lints]
+workspace = true
+
+[dependencies]
+kurbo = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }

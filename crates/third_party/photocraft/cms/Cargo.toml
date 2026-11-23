@@ -1,0 +1,24 @@
+# Vendored from PhotoCraft (crates/cms) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-photocraft-cms"
+description = "Pure-Rust ICC v2/v4 colour management (vendored photocraft-cms)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "photocraft_cms"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = { workspace = true }
+
+[dev-dependencies]
+moxcms = "0.8"

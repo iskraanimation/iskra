@@ -1,0 +1,37 @@
+[package]
+name = "iskra-ui"
+description = "The Iskra user interface (egui)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-audio = { workspace = true }
+iskra-drawing = { workspace = true }
+iskra-engine = { workspace = true }
+iskra-eval = { workspace = true }
+iskra-export = { workspace = true }
+iskra-gpu = { workspace = true }
+iskra-io = { workspace = true }
+iskra-model = { workspace = true }
+iskra-render = { workspace = true }
+iskra-script = { workspace = true }
+iskra-store = { workspace = true }
+photocraft-raster = { workspace = true }
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
+wgpu = { workspace = true }
+egui_extras = { workspace = true }
+rfd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sysinfo = { workspace = true }
+
+[dev-dependencies]
+photocraft-psd = { workspace = true }
+tempfile = { workspace = true }
+image = { workspace = true }

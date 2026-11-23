@@ -1,0 +1,27 @@
+[package]
+name = "iskra-io"
+description = "Import and export: drawings as PNG, timing and palettes as JSON, Photoshop brush files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iskra-audio = { workspace = true }
+iskra-drawing = { workspace = true }
+flate2 = { workspace = true }
+image = { workspace = true }
+iskra-model = { workspace = true }
+photocraft-paint = { workspace = true }
+photocraft-psd = { workspace = true }
+photocraft-raster = { workspace = true }
+png = { workspace = true }
+roxmltree = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+photocraft-color = { workspace = true }
+tempfile = { workspace = true }

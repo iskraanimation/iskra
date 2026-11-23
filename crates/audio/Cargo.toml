@@ -1,0 +1,12 @@
+[package]
+name = "iskra-audio"
+description = "Sound: reading sound files into samples, and what is worked out from them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

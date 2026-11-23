@@ -1,0 +1,22 @@
+# Vendored from FilmCraft (crates/testkit) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-filmcraft-testkit"
+description = "Test helpers for the FilmCraft crates (vendored filmcraft-testkit)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "filmcraft_testkit"
+# Its own tests look for FilmCraft's workspace two folders up, which is not where it lies here.
+# It is only a helper for the tests of the crates beside it, which are run.
+test = false
+
+[lints]
+workspace = true
+
+[dependencies]
+png = { workspace = true }

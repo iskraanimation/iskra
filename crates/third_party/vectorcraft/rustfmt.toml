@@ -1,0 +1,4 @@
+# VectorCraft's own style (150 columns, where the other ArtCraft apps have 160), so its vendored
+# sources need no reformatting.
+max_width = 150
+use_small_heuristics = "Max"

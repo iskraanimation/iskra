@@ -1,0 +1,142 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/audio",
+    "crates/drawing",
+    "crates/model",
+    "crates/eval",
+    "crates/render",
+    "crates/gpu",
+    "crates/export",
+    "crates/store",
+    "crates/io",
+    "crates/engine",
+    "crates/script",
+    "crates/ui",
+    "crates/tablet-windows",
+    "crates/third_party/photocraft/*",
+    "crates/third_party/effectcraft/*",
+    "crates/third_party/filmcraft/*",
+    "crates/third_party/vectorcraft/*",
+    "apps/*",
+    "xtask",
+]
+default-members = ["crates/audio", "crates/drawing", "crates/model", "crates/eval", "crates/render", "crates/gpu", "crates/export", "crates/store", "crates/io", "crates/engine", "crates/script", "crates/ui", "crates/tablet-windows", "apps/iskra"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+
+[workspace.dependencies]
+# internal
+iskra-audio = { path = "crates/audio" }
+iskra-drawing = { path = "crates/drawing" }
+iskra-model = { path = "crates/model" }
+iskra-eval = { path = "crates/eval" }
+iskra-render = { path = "crates/render" }
+iskra-gpu = { path = "crates/gpu" }
+iskra-export = { path = "crates/export" }
+iskra-store = { path = "crates/store" }
+iskra-io = { path = "crates/io" }
+iskra-engine = { path = "crates/engine" }
+iskra-script = { path = "crates/script" }
+iskra-ui = { path = "crates/ui" }
+iskra-tablet-windows = { path = "crates/tablet-windows" }
+
+# vendored ArtCraft crates (crates/third_party, ATTRIBUTION.md). The dependency key is the
+# upstream name, so vendored and ported code keeps its `use photocraft_geom::…` paths.
+photocraft-geom = { package = "iskra-photocraft-geom", path = "crates/third_party/photocraft/geom" }
+photocraft-cms = { package = "iskra-photocraft-cms", path = "crates/third_party/photocraft/cms" }
+photocraft-color = { package = "iskra-photocraft-color", path = "crates/third_party/photocraft/color" }
+photocraft-raster = { package = "iskra-photocraft-raster", path = "crates/third_party/photocraft/raster" }
+photocraft-paint = { package = "iskra-photocraft-paint", path = "crates/third_party/photocraft/paint" }
+photocraft-tablet = { package = "iskra-photocraft-tablet", path = "crates/third_party/photocraft/tablet" }
+photocraft-psd = { package = "iskra-photocraft-psd", path = "crates/third_party/photocraft/psd" }
+effectcraft-time = { package = "iskra-effectcraft-time", path = "crates/third_party/effectcraft/time" }
+effectcraft-geom = { package = "iskra-effectcraft-geom", path = "crates/third_party/effectcraft/geom" }
+effectcraft-color = { package = "iskra-effectcraft-color", path = "crates/third_party/effectcraft/color" }
+effectcraft-keyframe = { package = "iskra-effectcraft-keyframe", path = "crates/third_party/effectcraft/keyframe" }
+effectcraft-raster = { package = "iskra-effectcraft-raster", path = "crates/third_party/effectcraft/raster" }
+filmcraft-bitstream = { package = "iskra-filmcraft-bitstream", path = "crates/third_party/filmcraft/bitstream" }
+filmcraft-testkit = { package = "iskra-filmcraft-testkit", path = "crates/third_party/filmcraft/testkit" }
+filmcraft-h264enc = { package = "iskra-filmcraft-h264enc", path = "crates/third_party/filmcraft/h264enc" }
+filmcraft-prores = { package = "iskra-filmcraft-prores", path = "crates/third_party/filmcraft/prores" }
+filmcraft-aac = { package = "iskra-filmcraft-aac", path = "crates/third_party/filmcraft/aac" }
+filmcraft-isobmff = { package = "iskra-filmcraft-isobmff", path = "crates/third_party/filmcraft/isobmff" }
+vectorcraft-geom = { package = "iskra-vectorcraft-geom", path = "crates/third_party/vectorcraft/geom" }
+vectorcraft-pathops = { package = "iskra-vectorcraft-pathops", path = "crates/third_party/vectorcraft/pathops" }
+vectorcraft-trace = { package = "iskra-vectorcraft-trace", path = "crates/third_party/vectorcraft/trace" }
+
+# external
+thiserror = "2"
+# Curves for vector art (M11): VectorCraft's geometry is written over it.
+kurbo = { version = "0.13", features = ["serde"] }
+# The sweep line under VectorCraft's path booleans.
+linesweeper = "0.5"
+# Turns vector art into pixels (plan §4.16). egui's own text and shapes already bring this version.
+vello_cpu = { version = "0.1", default-features = false, features = ["std", "u8_pipeline"] }
+# The JavaScript engine scripts run on (plan §9), pure Rust: the one EffectCraft's scripts use.
+boa_engine = { version = "0.22", default-features = false }
+# Writes the storyboard's pages as a PDF (plan §4.7), its texts in Inter, embedded.
+krilla = "0.8"
+# Reads the glyphs of the text burned into a render. egui's own text already brings this version.
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
+# Shapes the text layers' texts (plan §4.19): kerning and ligatures from the font. egui shapes its
+# own text with this version, on the same `read-fonts` as `skrifa` above.
+harfrust = { version = "0.12", default-features = false, features = ["std"] }
+# Pure Rust, for the compressed parts of Photoshop files.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+rayon = "1"
+# Reads the list of layers in an OpenRaster file.
+roxmltree = "0.20"
+proptest = "1"
+# SQLite is the one C dependency: a stable, documented format many tools read (plan §4.9).
+rusqlite = { version = "0.40", features = ["bundled"] }
+lz4_flex = "0.14"
+tempfile = "3"
+png = "0.18"
+# Reads the pictures that are brought in: the crate FilmCraft reads stills with.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp", "webp", "tga"] }
+egui = "0.36"
+# The window's renderer, to draw the compositor's frames as pictures of the interface.
+egui-wgpu = "0.36"
+# Only for its SVG loader, which draws the icons.
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+eframe = { version = "0.36", default-features = false }
+rfd = "0.17"
+# The sound card, in the app only: nothing below it knows one.
+cpal = "0.16"
+# The same wgpu eframe draws the window with, so the compositor can share its device.
+wgpu = "30"
+pollster = "0.4"
+# How much memory the machine has, and how much is free, for the Settings window.
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# The three `allow`s are EffectCraft's, which its vendored crates are written against.
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+too_many_arguments = "allow"
+needless_range_loop = "allow"
+type_complexity = "allow"
+
+# Dependencies are optimized in debug builds too, so brushes and compositing stay usable.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1
+# Enough for a panic to say its file and line. Full debug info made the build folder grow by
+# gigabytes; set this to `true` for a session with a debugger.
+debug = "line-tables-only"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

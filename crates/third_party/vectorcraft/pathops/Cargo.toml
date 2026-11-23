@@ -1,0 +1,40 @@
+# Vendored from VectorCraft (crates/pathops) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-vectorcraft-pathops"
+description = "Path operations: booleans, regions, offset, outline stroke, simplify (vendored vectorcraft-pathops)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+# tests/prop_pathops.rs needs vectorcraft-testkit, which brings VectorCraft's whole document and
+# renderer, so it is not built here; the other tests are.
+autotests = false
+
+[lib]
+name = "vectorcraft_pathops"
+
+[[test]]
+name = "ops"
+path = "tests/ops.rs"
+
+[[test]]
+name = "props"
+path = "tests/props.rs"
+
+[[test]]
+name = "regressions"
+path = "tests/regressions.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+vectorcraft-geom = { workspace = true }
+kurbo = { workspace = true }
+thiserror = { workspace = true }
+linesweeper = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

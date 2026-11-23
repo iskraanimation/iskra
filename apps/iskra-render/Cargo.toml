@@ -1,0 +1,21 @@
+[package]
+name = "iskra-render-cli"
+description = "iskra-render: renders the shots of an Iskra project from the command line"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "iskra-render"
+path = "src/main.rs"
+
+[dependencies]
+iskra-engine = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

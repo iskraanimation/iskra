@@ -1,0 +1,41 @@
+# Vendored from PhotoCraft (crates/tablet) by scripts/vendor.sh; see ATTRIBUTION.md. Only this manifest is ours:
+# the package is renamed and the library keeps its upstream name, so the sources stay unchanged.
+[package]
+name = "iskra-photocraft-tablet"
+description = "Pen tablet pressure, tilt, rotation and eraser end on macOS (AppKit) and Linux X11, barrel button on Windows (vendored photocraft-tablet)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "photocraft_tablet"
+
+# The one crate that allows `unsafe`, and only in src/macos.rs and src/windows.rs (the AppKit event
+# monitor and the Windows message hook need OS interop). Every other crate keeps the workspace's
+# `unsafe_code = "forbid"`.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+# Pinned exactly, as upstream: review the diff before bumping.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.4"
+block2 = "=0.6.2"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSGeometry"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "block2", "NSEvent"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "=0.13.2", default-features = false, features = ["xinput"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "block2", "NSEvent", "NSGraphicsContext", "objc2-core-graphics", "NSApplication", "NSResponder"] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventTypes"] }
+
+[[test]]
+name = "monitor_macos"
+harness = false

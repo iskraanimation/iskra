@@ -1,0 +1,45 @@
+Iskra's change to the vendored photocraft-paint, applied by scripts/vendor.sh after each copy.
+
+StrokeRenderer::coverage_in read every pixel through coverage_at: three hash-map lookups
+(coverage, depth, Dual Brush) per pixel. Iskra's LiveStroke calls it over every redone tile
+on every frame, and with a large scattered brush that was 60 % of a frame. It now looks each
+coverage tile up once and reads its pixels in place, giving the same values (6x faster for
+a 404 px brush, measured with crates/drawing/examples/stroke_lag.rs).
+
+Worth offering upstream; drop this file once PhotoCraft has an equivalent.
+
+diff --git a/crates/third_party/photocraft/paint/src/render.rs b/crates/third_party/photocraft/paint/src/render.rs
+index b68e7a3..5fedbcd 100644
+--- a/crates/third_party/photocraft/paint/src/render.rs
++++ b/crates/third_party/photocraft/paint/src/render.rs
+@@ -915,7 +915,29 @@ impl StrokeRenderer {
+     /// Final coverage over `r`, one value per pixel in rows (as [`dense_coverage`](Self::dense_coverage)
+     /// over its bounds).
+     pub fn coverage_in(&self, r: Rect) -> Vec<f32> {
+-        (r.y0..r.y1).flat_map(|y| (r.x0..r.x1).map(move |x| (x, y))).map(|(x, y)| self.coverage_at(x, y)).collect()
++        let w = r.width() as usize;
++        let mut out = vec![0.0f32; w * r.height() as usize];
++        if r.is_empty() {
++            return out;
++        }
++        for ty in r.y0.div_euclid(COV_TILE)..=(r.y1 - 1).div_euclid(COV_TILE) {
++            for tx in r.x0.div_euclid(COV_TILE)..=(r.x1 - 1).div_euclid(COV_TILE) {
++                let Some(t) = self.cov.tiles.get(&(tx, ty)) else { continue };
++                let dual = self.dual.as_ref().map(|d| d.tiles.get(&(tx, ty)));
++                let tr = Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&r);
++                for y in tr.y0..tr.y1 {
++                    for x in tr.x0..tr.x1 {
++                        let ti = ((y - ty * COV_TILE) * COV_TILE + (x - tx * COV_TILE)) as usize;
++                        let c = t.cov[ti];
++                        if c > 0.0 {
++                            let dv = dual.map(|d| d.map_or(0.0, |d| d.cov[ti]));
++                            out[(y - r.y0) as usize * w + (x - r.x0) as usize] = self.ctx.stroke_mask_wet(c, t.depth.get(ti).copied(), dv, x, y);
++                        }
++                    }
++                }
++            }
++        }
++        out
+     }
+ 
+     /// Final stroke coverage at a pixel (stroke-level masks applied, before opacity/selection).
