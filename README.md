@@ -14,8 +14,9 @@ menus and shortcuts.
 ## Download
 
 Ready-made apps are on the [releases page](https://github.com/iskraanimation/iskra/releases/latest):
-a universal app for macOS 11 or newer, Apple silicon and Intel. It is not yet signed by Apple:
-the first time, right-click it and choose **Open**.
+a universal app for macOS 11 or newer (Apple silicon and Intel), and an app for 64-bit Windows 10
+and 11 that runs from wherever it is unzipped. Neither is signed yet: on macOS, right-click the app
+the first time and choose **Open**; on Windows, choose **More info** and then **Run anyway**.
 
 ## Screenshots
 
