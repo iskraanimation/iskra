@@ -2069,6 +2069,7 @@ dependencies = [
  "iskra-vectorcraft-trace",
  "kurbo 0.13.1",
  "png 0.18.1",
+ "rayon",
  "serde",
  "serde_json",
  "skrifa 0.44.0",

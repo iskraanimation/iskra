@@ -2622,14 +2622,16 @@ impl Viewport {
             // drawing is all vector art, with nothing left to bend; else through the mesh.
             let bent_exposed = exposed.map(|d| iskra_render::bent_points(&d.drawing, warp.cloned()));
             let art_warp = bent_exposed.as_ref().map_or(warp, |(_, bent)| bent.as_ref());
-            // Its gradients' and pictures' areas, where the palette has any it is painted with.
-            let areas = bent_exposed.as_ref().and_then(|(drawing, _)| self.areas_of(drawing, &colours));
+            // Its gradients' and pictures' areas, where the palette has any it is painted with;
+            // none looked for where the card drew the picture, which found its own.
+            let from_card = self.from_card;
+            let areas = bent_exposed.as_ref().filter(|_| !from_card).and_then(|(drawing, _)| self.areas_of(drawing, &colours));
             // Vector art seen larger than its pixels, drawn at the size it is seen on screen;
             // not one with gradients, which lie where its pixels are.
             let on_screen = Affine::scale(f64::from(self.view.zoom * ui.ctx().pixels_per_point()));
             let sharpened = bent_exposed
                 .as_ref()
-                .filter(|_| areas.is_none())
+                .filter(|_| areas.is_none() && !from_card)
                 .and_then(|(drawing, bent)| iskra_render::sharpened(drawing, bent.is_some(), &place, &on_screen));
             let art_place = sharpened.as_ref().map_or(place, |(_, sharp)| *sharp);
             let shown_drawing = sharpened.as_ref().map(|(drawing, _)| drawing).or(bent_exposed.as_ref().map(|(drawing, _)| drawing));

@@ -1031,8 +1031,8 @@ impl Compositor {
         let key = (Arc::as_ptr(drawing) as usize, Arc::as_ptr(of.palette) as usize, of.style);
         let frames = self.frames;
         let found = self.shaded.entry(key).or_insert_with(|| {
-            let swatches = drawing.art_layers.iter().filter_map(|layer| layer.content.indexed()).flat_map(|surface| surface.swatches());
-            let shaded = swatches.into_iter().any(|swatch| !of.colours.shade(swatch).is_solid());
+            let mut surfaces = drawing.art_layers.iter().filter_map(|layer| layer.content.indexed());
+            let shaded = surfaces.any(|surface| surface.paints_with(|swatch| !of.colours.shade(swatch).is_solid()));
             (drawing.clone(), of.palette.clone(), shaded, frames)
         });
         found.3 = frames;
@@ -1055,6 +1055,8 @@ impl Compositor {
         bent: Option<&iskra_render::Bent>,
     ) -> Uploaded {
         let most = (self.longest as i32 - 2 * APRON).max(1);
+        // Its gradients' and pictures' areas, found once for all its pieces.
+        let areas = if bent.is_none() { colours.areas_of(drawing) } else { Default::default() };
         let mut pieces = Vec::new();
         for top in (bounds.y0..bounds.y1).step_by(most as usize) {
             for left in (bounds.x0..bounds.x1).step_by(most as usize) {
@@ -1068,7 +1070,7 @@ impl Compositor {
                         let rows = (held.y0 - bent.bounds.y0) as usize..(held.y1 - bent.bounds.y0) as usize;
                         rows.flat_map(|row| bent.pixels[row * wide + left..row * wide + left + held.width() as usize].iter().copied()).collect()
                     }
-                    None => colours.paint(drawing, held, space),
+                    None => colours.paint_in(drawing, held, &areas, space),
                 };
                 let size = wgpu::Extent3d { width: held.width(), height: held.height(), depth_or_array_layers: 1 };
                 let described = wgpu::TextureDescriptor {

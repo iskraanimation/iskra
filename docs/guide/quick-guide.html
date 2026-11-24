@@ -1,0 +1,1220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=794">
+<title>Iskra · Quick guide</title>
+<!-- The quick guide, printed to docs/Iskra-Quick-Guide.pdf by make-pdf.swift beside it. Each
+     .page is one A4 page. The pictures of the app are drawn here in HTML, with the app's own
+     icons and typeface, so they are kept up to date as text is. -->
+<style>
+@font-face { font-family: Inter; src: url(../../crates/ui/assets/fonts/Inter-Regular.ttf); font-weight: 400; }
+@font-face { font-family: Inter; src: url(../../crates/ui/assets/fonts/Inter-SemiBold.ttf); font-weight: 600; }
+@font-face { font-family: Mono; src: url(../../crates/ui/assets/fonts/JetBrainsMono-Regular.ttf); }
+
+:root {
+  --ink: #16181b; --muted: #5b616a; --line: #e3e5e8;
+  --spark: #f27a2e; --spark-deep: #c4560f; --spark-tint: #fdf2ea;
+  --call: #f2c14e;
+  /* The app's dark theme. */
+  --ui: #1e1f22; --ui-panel: #232428; --ui-raised: #2b2c31; --ui-line: #34363c;
+  --ui-text: #d7d9dd; --ui-weak: #8a8e96; --ui-sel: #6f4a31;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #888; }
+body { font-family: Inter, sans-serif; color: var(--ink); font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+.page { width: 794px; height: 1123px; background: #fff; padding: 64px 72px 56px; position: relative; overflow: hidden; }
+.page + .page { margin-top: 0; }
+.foot { position: absolute; bottom: 30px; left: 72px; right: 72px; font-size: 10.5px; color: #9aa0a8; display: flex; justify-content: space-between; }
+
+h1 { font-size: 31px; font-weight: 600; letter-spacing: -0.6px; display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+h1 .n { background: var(--spark); color: #1b1206; width: 42px; height: 42px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 20px; letter-spacing: -0.5px; }
+h2 { font-size: 17px; font-weight: 600; margin: 20px 0 6px; letter-spacing: -0.2px; }
+h2:first-child { margin-top: 0; }
+h3 { font-size: 13.5px; font-weight: 600; margin: 12px 0 2px; }
+.lead { font-size: 15.5px; color: var(--muted); margin-bottom: 22px; line-height: 1.45; }
+p + p { margin-top: 7px; }
+ul { padding-left: 18px; margin: 4px 0; }
+li { margin: 3px 0; }
+b { font-weight: 600; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 36px; }
+.cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 26px; }
+.small { font-size: 12px; color: var(--muted); }
+.note { background: var(--spark-tint); border-left: 4px solid var(--spark); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 18px 0 0; font-size: 13px; }
+.note b:first-child { color: var(--spark-deep); }
+kbd { font-family: Inter, sans-serif; font-size: 11.5px; background: #f1f2f4; border: 1px solid #d5d8dc; border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; white-space: nowrap; }
+.mono { font-family: Mono, monospace; font-size: 12px; }
+
+/* The numbered callouts, and the lists that say what they point to. */
+.c { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--call); color: #1b1404; font-weight: 600; font-size: 11.5px; flex: none; }
+.mock .c { position: absolute; box-shadow: 0 0 0 2px #1b1404; z-index: 5; }
+.legend { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 30px; margin-top: 16px; font-size: 13px; }
+.legend.one { grid-template-columns: 1fr; }
+.legend > div { display: flex; gap: 10px; align-items: flex-start; }
+.legend .c { margin-top: 0; }
+.legend b { margin-right: 4px; }
+
+/* Tables of what does what. */
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+td { padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { width: 38%; }
+table.keys td:first-child { width: auto; }
+table.keys td:last-child { width: 46%; }
+table.keys tr.head td { font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid #cfd3d8; padding-top: 14px; }
+table.keys td { padding: 3px 8px; font-size: 12.5px; }
+table.keys tr.head td { padding-top: 10px; }
+
+/* The contents. */
+.toc { margin-top: 26px; }
+.toc div { display: flex; align-items: center; gap: 22px; padding: 7px 0 7px 10px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.toc .c { width: 26px; height: 26px; font-size: 12px; }
+
+/* The pictures of the app. */
+.mock { background: var(--ui); color: var(--ui-text); border-radius: 14px; position: relative; font-size: 11.5px; line-height: 1.35; padding: 10px; }
+.mock .panel { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 7px; position: relative; overflow: hidden; }
+.mock .tabs { display: flex; gap: 2px; padding: 0 6px; height: 24px; align-items: center; border-bottom: 1px solid var(--ui-line); font-size: 11px; color: var(--ui-weak); white-space: nowrap; overflow: hidden; }
+.mock .tabs span { padding: 3px 7px; }
+.mock .tabs span.on { color: var(--ui-text); border-bottom: 2px solid var(--spark); }
+.mock .bar { display: flex; gap: 5px; align-items: center; height: 26px; padding: 0 6px; border-bottom: 1px solid var(--ui-line); font-size: 11px; white-space: nowrap; overflow: hidden; }
+.mock .bar .grip { color: #555; }
+.mock .bt { background: var(--ui-raised); border-radius: 4px; padding: 2px 6px; }
+.mock .bt.on { background: var(--spark); color: #1b1206; }
+.mock .bt.red { background: #a8322d; color: #fff; }
+.mock .weak { color: var(--ui-weak); }
+.mock .sel { background: var(--ui-sel); border-radius: 3px; padding: 0 4px; }
+.ic { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; overflow: visible; flex: none; }
+.ic.big { width: 22px; height: 22px; }
+.strip { display: flex; flex-direction: column; gap: 9px; align-items: center; padding: 8px 0; }
+.strip .ic { width: 16px; height: 16px; color: #c6c8cc; }
+.strip .on { background: var(--spark); border-radius: 5px; padding: 3px; box-sizing: content-box; color: #1b1206; margin: -3px; }
+.frame { background: #fff; position: absolute; border: 1px solid #7fc7ff; }
+.cells { position: absolute; inset: 0; background-image: repeating-linear-gradient(90deg, transparent 0 15px, #2a2b30 15px 16px); }
+.row { height: 19px; display: flex; align-items: center; gap: 6px; padding: 0 6px; font-size: 11px; white-space: nowrap; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.sw { display: inline-block; width: 22px; height: 22px; border-radius: 4px; border: 1px solid #00000040; }
+
+/* The cover. */
+.cover { background: radial-gradient(circle at 22% 18%, #4a2a14 0%, #241811 32%, #111113 70%); color: #f3efe9; display: flex; flex-direction: column; align-items: center; padding-top: 250px; text-align: center; }
+.cover h1 { font-size: 64px; letter-spacing: -2px; justify-content: center; margin: 46px 0 8px; }
+.cover .sub { font-size: 21px; color: #b8aea4; }
+.cover .what { margin-top: 64px; font-size: 16px; line-height: 1.6; color: #e9e3dc; max-width: 560px; }
+.cover .os { position: absolute; bottom: 52px; left: 0; right: 0; font-size: 13px; color: #8f857b; }
+.cover svg { filter: drop-shadow(0 0 40px #f27a2e55); }
+</style>
+</head>
+<body>
+<!-- icons: made by icons.py -->
+<svg style="display:none">
+<symbol id="i-art-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 7.5 12 12 3 7.5Z" /> <path d="M3 12 12 16.5 21 12" /> <path d="M3 16.5 12 21 21 16.5" /></symbol>
+<symbol id="i-art-colour" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 7.5 12 12 3 7.5Z" stroke-dasharray="2 2.5" /> <path d="M3 12 12 16.5 21 12" stroke-dasharray="2 2.5" /> <path d="M3 16.5 12 21 21 16.5" /></symbol>
+<symbol id="i-art-line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 7.5 12 12 3 7.5Z" stroke-dasharray="2 2.5" /> <path d="M3 12 12 16.5 21 12" /> <path d="M3 16.5 12 21 21 16.5" stroke-dasharray="2 2.5" /></symbol>
+<symbol id="i-art-over" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 7.5 12 12 3 7.5Z" /> <path d="M3 12 12 16.5 21 12" stroke-dasharray="2 2.5" /> <path d="M3 16.5 12 21 21 16.5" stroke-dasharray="2 2.5" /></symbol>
+<symbol id="i-bones" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="18" r="2.5"/><circle cx="12" cy="8" r="2.5"/><circle cx="20" cy="14" r="2"/><path d="M6.5 16 10.5 10"/><path d="M14.2 9.6 18.3 12.8"/></symbol>
+<symbol id="i-brush" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 10 3 3" /> <path d="M6.5 21A3.5 3.5 0 1 0 3 17.5a2.62 2.62 0 0 1-.708 1.792A1 1 0 0 0 3 21z" /> <path d="M9.969 17.031 21.378 5.624a1 1 0 0 0-3.002-3.002L6.967 14.031" /></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="13" height="10" rx="2" /> <path d="M15 10.5l6-3.5v10l-6-3.5" /></symbol>
+<symbol id="i-clip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14" /> <path d="M18 22V8a2 2 0 0 0-2-2H2" /></symbol>
+<symbol id="i-eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21" /> <path d="m5.082 11.09 8.828 8.828" /></symbol>
+<symbol id="i-export" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3" /> <path d="m7 8 5-5 5 5" /> <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></symbol>
+<symbol id="i-eyedropper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8 5 16v3h3l8-8" /> <path d="m11 6 7 7" /> <path d="m16 11 3.500-3.500a2.100 2.100 0 0 0-3-3L13 8" /> <path d="M3 21h.01" /></symbol>
+<symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" /></symbol>
+<symbol id="i-follow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7" /> <circle cx="12" cy="12" r="2" /> <path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></symbol>
+<symbol id="i-gradient" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /> <path d="M9.5 14.5 14.5 9.5" /> <circle cx="7.5" cy="16.5" r="2" /> <circle cx="16.5" cy="7.5" r="2" /></symbol>
+<symbol id="i-light-table" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2" /> <path d="M7 21h10" /> <path d="M12 17v4" /> <path d="M8 13l3-4 2.5 3 1.5-1.5 2 2.5" /></symbol>
+<symbol id="i-loop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="M7 22l-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" /></symbol>
+<symbol id="i-magnet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v8a7 7 0 0 0 14 0V4h-4v8a3 3 0 0 1-6 0V4z" /> <path d="M5 8h4" /> <path d="M15 8h4" /></symbol>
+<symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /> <rect x="12" y="12" width="6" height="6" rx="1" /></symbol>
+<symbol id="i-mouse-pointer-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z" /></symbol>
+<symbol id="i-move" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20" /> <path d="m15 19-3 3-3-3" /> <path d="m19 9 3 3-3 3" /> <path d="M2 12h20" /> <path d="m5 9-3 3 3 3" /> <path d="m9 5 3-3 3 3" /></symbol>
+<symbol id="i-onion-skin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="14.5" cy="12" r="6.5" /> <path d="M8.2 6.1a6.5 6.5 0 0 0 0 11.8" stroke-dasharray="2.2 2.6" /> <path d="M4.2 8a5.5 5.5 0 0 0 0 8" stroke-dasharray="1 3.2" /></symbol>
+<symbol id="i-paint-bucket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z" /> <path d="m5 2 5 5" /> <path d="M2 13h15" /> <path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z" /></symbol>
+<symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol>
+<symbol id="i-razor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2 2-2h7v10h-7l-2-2-2 2H3z" /> <path d="M7 12h10" /></symbol>
+<symbol id="i-ripple" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16" /> <path d="M2 12h20" /> <path d="M5 9l-3 3 3 3" /> <path d="M19 9l3 3-3 3" /></symbol>
+<symbol id="i-scissors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3" /> <path d="M8.12 8.12 12 12" /> <path d="M20 4 8.12 15.88" /> <circle cx="6" cy="18" r="3" /> <path d="M14.8 14.8 20 20" /></symbol>
+<symbol id="i-shapes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="11" height="11" rx="1" /> <circle cx="15.5" cy="15.5" r="5.5" /></symbol>
+<symbol id="i-shot-next" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 5v14" /> <path d="M6 5l9 7-9 7z" /></symbol>
+<symbol id="i-shot-previous" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14" /> <path d="M18 5 9 12l9 7z" /></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /> <path d="M20 2v4" /> <path d="M22 4h-4" /> <circle cx="4" cy="20" r="2" /></symbol>
+<symbol id="i-spline-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z" /> <path d="M5 17A12 12 0 0 1 17 5" /> <circle cx="19" cy="5" r="2" /> <circle cx="5" cy="19" r="2" /></symbol>
+<symbol id="i-storyboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="6" height="9" rx="1" /> <rect x="10" y="6" width="6" height="9" rx="1" /> <path d="M18 6h3a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-3" /> <path d="M2 19h20" /></symbol>
+<symbol id="i-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7V4h14v3" /> <path d="M12 4v16" /> <path d="M9 20h6" /></symbol>
+<symbol id="i-zoom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="7" /> <path d="M15.5 15.5 21 21" /> <path d="M10.5 7.5v6" /> <path d="M7.5 10.5h6" /></symbol>
+</svg>
+<!-- icons: end -->
+
+<!-- ───────────────────────────── Cover ───────────────────────────── -->
+<section class="page cover">
+  <svg width="200" height="200" viewBox="64 64 896 896" aria-label="Iskra">
+    <rect x="64" y="64" width="896" height="896" rx="200" fill="#000"/>
+    <path d="M 150 512 L 330 200 L 694 200 L 874 512 L 694 824 L 330 824 Z" fill="#fff" stroke="#fff" stroke-width="64" stroke-linejoin="round"/>
+    <g fill="#000">
+      <path d="M 512 172 L 579 436 L 512 462 L 445 436 Z"/>
+      <path d="M 852 512 L 588 579 L 562 512 L 588 445 Z"/>
+      <path d="M 512 852 L 445 588 L 512 562 L 579 588 Z"/>
+      <path d="M 172 512 L 436 445 L 462 512 L 436 579 Z"/>
+    </g>
+  </svg>
+  <h1>Iskra</h1>
+  <div class="sub">Quick guide · Version 0.1</div>
+  <div class="what">
+    A free and open-source 2D animation app, with the storyboard built in.<br>
+    Board the film, animate each shot frame by frame or as a cut-out rig, and render the shots out one by one.
+  </div>
+  <div class="os">macOS, Windows and Linux</div>
+</section>
+
+<!-- ───────────────────────────── Contents ───────────────────────────── -->
+<section class="page">
+  <h1>Contents</h1>
+  <div class="toc">
+    <div><span class="c">1</span>Start, open and save</div>
+    <div><span class="c">2</span>The main window</div>
+    <div><span class="c">3</span>The four pages</div>
+    <div><span class="c">4</span>The Media page</div>
+    <div><span class="c">5</span>The Storyboard page</div>
+    <div><span class="c">6</span>The tools</div>
+    <div><span class="c">7</span>Brushes</div>
+    <div><span class="c">8</span>Art layers, bitmap and vector</div>
+    <div><span class="c">9</span>Palettes and swatches</div>
+    <div><span class="c">10</span>The timeline: drawings and holds</div>
+    <div><span class="c">11</span>Keyframes, pegs and motion</div>
+    <div><span class="c">12</span>Onion skin and drawing substitution</div>
+    <div><span class="c">13</span>The node view and effects</div>
+    <div><span class="c">14</span>Rigs, characters and the library</div>
+    <div><span class="c">15</span>The camera and depth</div>
+    <div><span class="c">16</span>The Export page</div>
+    <div><span class="c">17</span>Make it yours: panels, keys, scripts</div>
+    <div><span class="c">18</span>Keyboard shortcuts</div>
+    <div><span class="c">19</span>Good to know</div>
+  </div>
+  <div class="note"><b>How to read this guide:</b> the dark pictures show parts of the app. Yellow numbers point to things; the list under each picture says what they do. Hover over any button in the app to see what it does and its shortcut.</div>
+  <div class="note"><b>Keys:</b> <kbd>Cmd</kbd> is the Command key on macOS and <kbd>Ctrl</kbd> on Windows and Linux; <kbd>Alt</kbd> is Option on a Mac. The shortcuts are those of the starting keymap, which follows Harmony's layout; Animate and TVPaint layouts are in Settings (see 17).</div>
+</section>
+
+<!-- ───────────────────────────── 1 Start ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">1</span>Start, open and save</h1>
+  <p class="lead">Opened from its icon, Iskra first shows the start window: a new project on the left, the ones you opened lately on the right.</p>
+
+  <div class="mock" style="height:250px; padding:0">
+    <div style="position:absolute; inset:0 30% 0 0; padding:22px 26px">
+      <div style="font-weight:600; margin-bottom:14px">New Project</div>
+      <div style="display:grid; grid-template-columns:80px 1fr; gap:9px 10px; align-items:center">
+        <span class="weak" style="text-align:right">Name</span><span class="bt" style="width:200px">Film</span>
+        <span class="weak" style="text-align:right">Location</span><span><span class="weak">~/Iskra</span> &nbsp;<span class="bt">Choose…</span></span>
+        <span class="weak" style="text-align:right">Resolution</span><span class="bt" style="width:200px">HD 1920 × 1080 ▾</span>
+        <span class="weak" style="text-align:right">Frame rate</span><span class="bt" style="width:200px">25 fps ▾</span>
+      </div>
+      <div class="weak" style="margin-top:12px; font-size:10.5px">The presets are in Settings ▸ New Projects.</div>
+      <div style="position:absolute; bottom:18px; right:22px; display:flex; gap:6px"><span class="bt on">Open</span><span class="bt">Cancel</span></div>
+    </div>
+    <div style="position:absolute; inset:0 0 0 70%; background:#18191b; padding:22px 18px; border-radius:0 14px 14px 0">
+      <div style="font-weight:600; margin-bottom:12px">Recent Projects</div>
+      <div class="sel" style="padding:3px 6px">Pilot.iskra</div>
+      <div style="padding:3px 6px">Walk cycle.iskra</div>
+      <div style="padding:3px 6px">Ad spot.iskra</div>
+      <div style="position:absolute; bottom:18px; left:18px"><span class="bt">Browse…</span></div>
+    </div>
+    <span class="c" style="left:-10px; top:22px">1</span>
+    <span class="c" style="left:298px; top:84px">2</span>
+    <span class="c" style="left:300px; top:186px">3</span>
+    <span class="c" style="left:638px; top:22px">4</span>
+    <span class="c" style="left:562px; top:210px">5</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>New Project</b> Its name, and the folder it is made in.</div></div>
+    <div><span class="c">2</span><div><b>Size and speed</b> Resolution and frame rate, from the presets.</div></div>
+    <div><span class="c">3</span><div><b>Open</b> Makes the new project, or opens the recent one picked. <b>Cancel</b> quits.</div></div>
+    <div><span class="c">4</span><div><b>Recent Projects</b> Double-click one to open it.</div></div>
+    <div><span class="c">5</span><div><b>Browse…</b> Any other project file.</div></div>
+  </div>
+
+  <div class="cols" style="margin-top:26px">
+    <div>
+      <h2>One file, one folder</h2>
+      <p>A project is one file, <b>Film.iskra</b>. When it is first saved it goes in a folder of its name, with folders for what comes with it:</p>
+      <p class="mono" style="margin-top:8px; line-height:1.7">Film/<br>&nbsp; Film.iskra<br>&nbsp; Images/ &nbsp;Audio/ &nbsp;Palettes/<br>&nbsp; Library/ &nbsp;Shots/ &nbsp;Renders/</p>
+      <p style="margin-top:8px">Everything the film holds (storyboards, shots, drawings, palettes, sound) is inside the one <b>.iskra</b> file.</p>
+    </div>
+    <div>
+      <h2>Saving</h2>
+      <p><kbd>Cmd+S</kbd> saves, <kbd>Cmd+Shift+S</kbd> saves as. <b>Autosave</b> is on: a minute after you change something it is saved. Switch it off or change the wait in <b>Settings ▸ General</b>.</p>
+      <h2>Getting Iskra</h2>
+      <p>Iskra is built from its source code with Rust 1.95 or newer:</p>
+      <p class="mono" style="margin-top:6px">cargo run --release</p>
+      <p class="small" style="margin-top:6px">On Linux, install the windowing headers first (listed in the README).</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>3</span></div>
+</section>
+
+<!-- ───────────────────────────── 2 Main window ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">2</span>The main window</h1>
+  <p class="lead">This is the Animation page. Every page is made of panels: they can be moved, tabbed together, resized and pulled out into a window of their own (see 17).</p>
+
+  <div class="mock" style="height:480px; padding:0">
+    <!-- menus -->
+    <div style="position:absolute; left:0; right:0; top:0; height:26px; display:flex; gap:12px; align-items:center; padding:0 14px; border-bottom:1px solid var(--ui-line); font-size:11px">
+      <span style="font-weight:600">Iskra</span><span>File</span><span>Edit</span><span>Drawing</span><span>Animation</span><span>View</span><span>Play</span><span>Storyboard</span><span>Scripts</span><span>Workspace</span>
+      <span class="weak" style="margin-left:auto">Film — Shot_03</span>
+    </div>
+    <!-- tools strip -->
+    <div class="strip" style="position:absolute; left:6px; top:32px; width:26px">
+      <svg class="ic on"><use href="#i-mouse-pointer-2"/></svg>
+      <svg class="ic"><use href="#i-scissors"/></svg>
+      <svg class="ic"><use href="#i-brush"/></svg>
+      <svg class="ic"><use href="#i-eraser"/></svg>
+      <svg class="ic"><use href="#i-paint-bucket"/></svg>
+      <svg class="ic"><use href="#i-shapes"/></svg>
+      <svg class="ic"><use href="#i-eyedropper"/></svg>
+      <svg class="ic"><use href="#i-gradient"/></svg>
+      <svg class="ic"><use href="#i-spline-pointer"/></svg>
+      <svg class="ic"><use href="#i-text"/></svg>
+      <svg class="ic"><use href="#i-zoom"/></svg>
+      <svg class="ic"><use href="#i-camera"/></svg>
+      <svg class="ic"><use href="#i-bones"/></svg>
+      <svg class="ic"><use href="#i-move"/></svg>
+    </div>
+    <!-- viewport -->
+    <div class="panel" style="position:absolute; left:38px; top:32px; width:372px; height:226px">
+      <div class="tabs"><span class="on">Viewport</span></div>
+      <div class="bar"><span class="grip">⋮</span>
+        <svg class="ic"><use href="#i-art-line"/></svg><svg class="ic"><use href="#i-art-colour"/></svg><svg class="ic"><use href="#i-art-over"/></svg><svg class="ic"><use href="#i-art-all"/></svg>
+        <span class="grip">⋮</span><svg class="ic"><use href="#i-onion-skin"/></svg><svg class="ic"><use href="#i-light-table"/></svg>
+        <span class="grip">⋮</span><svg class="ic"><use href="#i-follow"/></svg>
+        <span class="grip">⋮</span><span>Display: Display</span><span style="margin-left:auto">…</span></div>
+      <div style="position:absolute; left:0; right:0; top:50px; bottom:26px; background:#ececec">
+        <div class="frame" style="left:44px; top:14px; right:44px; bottom:14px">
+          <svg viewBox="0 0 100 60" style="position:absolute; inset:0; width:100%; height:100%"><path d="M40 44 q4 -18 12 -20 q9 -2 10 10 q1 8 -6 12" fill="none" stroke="#222" stroke-width="1.3"/><circle cx="52" cy="22" r="6" fill="#f3b38a" stroke="#222" stroke-width="1"/><path d="M15 52 h70" stroke="#999" stroke-width="0.6"/></svg>
+        </div>
+      </div>
+      <div class="bar" style="position:absolute; bottom:0; left:0; right:0; border-top:1px solid var(--ui-line); border-bottom:none"><span class="grip">⋮</span><svg class="ic"><use href="#i-clip"/></svg><span class="grip">⋮</span><span style="display:inline-block;width:46px;height:4px;background:#555;border-radius:2px"></span><span>61%</span><span>Zoom</span><span class="bt">Fit</span><span class="grip">⋮</span><span class="bt">Aspect Mask</span><span class="grip">⋮</span><span class="bt">Guides (2)</span></div>
+    </div>
+    <!-- right top: node view and tabs -->
+    <div class="panel" style="position:absolute; left:418px; top:32px; right:10px; height:226px">
+      <div class="tabs"><span class="on">Node View</span><span>Top View</span><span>Palette</span><span>Brushes</span><span>Drawing Substitution</span></div>
+      <svg viewBox="0 0 220 190" style="position:absolute; left:0; top:26px; width:100%; height:190px">
+        <g font-size="8" fill="#d7d9dd" font-family="Inter">
+          <rect x="18" y="30" width="62" height="16" rx="3" fill="#2b2c31" stroke="#f27a2e"/><text x="49" y="41" text-anchor="middle">Character</text>
+          <rect x="120" y="22" width="62" height="16" rx="3" fill="#2b2c31" stroke="#5aa0d8"/><text x="151" y="33" text-anchor="middle">Background</text>
+          <rect x="70" y="92" width="62" height="16" rx="3" fill="#2b2c31" stroke="#9a7ad8"/><text x="101" y="103" text-anchor="middle">Composite</text>
+          <rect x="70" y="148" width="62" height="16" rx="3" fill="#2b2c31" stroke="#777"/><text x="101" y="159" text-anchor="middle">Display</text>
+          <path d="M49 46 C49 70 95 70 95 92 M151 38 C151 70 107 70 107 92 M101 108 V148" stroke="#f27a2e" fill="none" stroke-width="1"/>
+        </g>
+      </svg>
+    </div>
+    <!-- timeline -->
+    <div class="panel" style="position:absolute; left:38px; top:264px; width:372px; bottom:40px">
+      <div class="tabs"><span class="on">Timeline</span><span>Function Curves</span><span>Log</span></div>
+      <div class="bar"><span class="grip">⋮</span><svg class="ic"><use href="#i-play"/></svg><svg class="ic"><use href="#i-loop"/></svg><span class="grip">⋮</span><span class="bt">Animate</span><span class="bt">Adjust</span><span class="bt">Add Key</span><span class="grip">⋮</span><span class="bt">Add Layer</span><span class="grip">⋮</span><span class="bt">New Drawing</span><span class="weak">Hold</span><span class="bt">1 fr</span></div>
+      <div style="position:absolute; left:0; width:120px; top:52px; bottom:0; border-right:1px solid var(--ui-line); padding-top:16px">
+        <div class="row">⌄ <span class="weak">⟂</span> Character-P <span style="margin-left:auto" class="weak">+ 🔒︎ ◉</span></div>
+        <div class="row" style="padding-left:20px"><span class="sel">Character</span></div>
+        <div class="row">⌄ <span class="weak">⟂</span> Background-P</div>
+        <div class="row" style="padding-left:20px">Background</div>
+        <div class="row"><span class="weak">⟂</span> Camera-P</div>
+      </div>
+      <div style="position:absolute; left:121px; right:0; top:52px; bottom:0; overflow:hidden">
+        <div style="height:16px; border-bottom:1px solid var(--ui-line); font-size:9px; color:var(--ui-weak); padding-left:3px">1 &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 5 &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 10 &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 15</div>
+        <div style="position:relative; height:100px">
+          <div style="position:absolute; top:3px; left:0; width:160px; height:13px; background:#3a3b41; border-radius:2px"></div>
+          <div style="position:absolute; top:3px; left:0; width:9px; height:9px; margin-top:2px; background:#a8322d; transform:rotate(45deg) scale(.7)"></div>
+          <div style="position:absolute; top:3px; left:120px; width:9px; height:9px; margin-top:2px; background:#a8322d; transform:rotate(45deg) scale(.7)"></div>
+          <div style="position:absolute; top:22px; left:0; width:48px; height:13px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">1</div>
+          <div style="position:absolute; top:22px; left:49px; width:48px; height:13px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">2</div>
+          <div style="position:absolute; top:22px; left:98px; width:72px; height:13px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">3</div>
+          <div style="position:absolute; top:60px; left:0; width:240px; height:13px; background:#2f3036; border-radius:2px; font-size:9px; padding-left:3px">1</div>
+          <div style="position:absolute; top:-16px; bottom:-40px; left:66px; width:1px; background:var(--spark)"></div>
+        </div>
+      </div>
+    </div>
+    <!-- tool properties -->
+    <div class="panel" style="position:absolute; left:418px; top:264px; right:10px; bottom:40px">
+      <div class="tabs"><span class="on">Tool Properties</span><span>Properties</span><span>Library</span><span>Onion Skin</span></div>
+      <div style="display:grid; grid-template-columns:70px 1fr; gap:6px 8px; padding:10px; align-items:center; font-size:10.5px">
+        <span class="weak" style="text-align:right">Brush</span><span>Hard Round</span>
+        <span class="weak" style="text-align:right">Size</span><span><span style="display:inline-block;width:70px;height:4px;background:#555;border-radius:2px;vertical-align:middle"></span> 12</span>
+        <span class="weak" style="text-align:right">Colour</span><span><span class="sw" style="width:28px;height:13px;background:#111;vertical-align:middle"></span></span>
+        <span class="weak" style="text-align:right">Swatch</span><span>■ Line</span>
+        <span class="weak" style="text-align:right"></span><span>☐ Vector</span>
+      </div>
+    </div>
+    <!-- page bar and status -->
+    <div style="position:absolute; left:0; right:0; bottom:0; height:34px; border-top:1px solid var(--ui-line); display:flex; align-items:center; gap:20px; padding-left:200px">
+      <svg class="ic big" style="color:#c6c8cc"><use href="#i-folder-open"/></svg>
+      <svg class="ic big" style="color:#c6c8cc"><use href="#i-storyboard"/></svg>
+      <svg class="ic big" style="color:var(--spark)"><use href="#i-sparkles"/></svg>
+      <svg class="ic big" style="color:#c6c8cc"><use href="#i-export"/></svg>
+      <span style="position:absolute; right:12px; font-size:10.5px" class="weak">Shot_03 ⌄ │ 1920 × 1080 │ 25 fps │ Pen</span>
+    </div>
+    <span class="c" style="left:-10px; top:2px">1</span>
+    <span class="c" style="left:-10px; top:80px">2</span>
+    <span class="c" style="left:250px; top:30px">3</span>
+    <span class="c" style="left:340px; top:150px">4</span>
+    <span class="c" style="left:398px; top:236px">5</span>
+    <span class="c" style="left:398px; top:300px">6</span>
+    <span class="c" style="left:-10px; top:330px">7</span>
+    <span class="c" style="left:260px; top:390px">8</span>
+    <span class="c" style="left:640px; top:120px">9</span>
+    <span class="c" style="left:640px; top:330px">10</span>
+    <span class="c" style="left:160px; top:448px">11</span>
+    <span class="c" style="left:600px; top:424px">12</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>Menus</b> Every command, with its shortcut. On macOS they are in the menu bar at the top of the screen.</div></div>
+    <div><span class="c">2</span><div><b>Tools</b> One click picks a tool (see 6).</div></div>
+    <div><span class="c">3</span><div><b>Viewport bar</b> Which art layer you draw on, onion skin and light table, follow the layer, which display is shown.</div></div>
+    <div><span class="c">4</span><div><b>Viewport</b> The shot through its camera; the blue line is the camera's frame.</div></div>
+    <div><span class="c">5</span><div><b>View bar</b> Zoom, Fit, a mask of the frame's shape, guides.</div></div>
+    <div><span class="c">6</span><div><b>Timeline bar</b> Play, Animate, keys, layers and drawings.</div></div>
+    <div><span class="c">7</span><div><b>Layers</b> Each with its pegs above it; lock, eye, add a peg.</div></div>
+    <div><span class="c">8</span><div><b>Frames</b> Drawings as blocks, keyframes as red diamonds; the orange line is the playhead.</div></div>
+    <div><span class="c">9</span><div><b>Node View</b> How layers, pegs and effects are wired (see 13).</div></div>
+    <div><span class="c">10</span><div><b>Tool Properties</b> The settings of the tool in hand.</div></div>
+    <div><span class="c">11</span><div><b>Pages</b> Media, Storyboard, Animation, Export (see 3).</div></div>
+    <div><span class="c">12</span><div><b>Status</b> The shot (click to change it), its size and speed, and whether a pen or the mouse draws.</div></div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>4</span></div>
+</section>
+
+<!-- ───────────────────────────── 3 Pages ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">3</span>The four pages</h1>
+  <p class="lead">One project holds the storyboard, its shots and their media. The bar at the foot of the window switches between four pages, each laid out for one part of the work.</p>
+
+  <div class="mock" style="height:62px; display:flex; align-items:center; justify-content:center; gap:46px">
+    <span style="display:flex; align-items:center; gap:8px"><svg class="ic big"><use href="#i-folder-open"/></svg>Media</span>
+    <span style="display:flex; align-items:center; gap:8px"><svg class="ic big"><use href="#i-storyboard"/></svg>Storyboard</span>
+    <span style="display:flex; align-items:center; gap:8px; color:var(--spark)"><svg class="ic big"><use href="#i-sparkles"/></svg>Animation</span>
+    <span style="display:flex; align-items:center; gap:8px"><svg class="ic big"><use href="#i-export"/></svg>Export</span>
+  </div>
+
+  <div class="cols" style="margin-top:22px; gap:18px 36px">
+    <div><h2>Media</h2><p>What the project holds: its bins of storyboards, shots, pictures and sound, each shot's status, and the files on disk. Shots are sent out to animators and brought back here (see 4).</p></div>
+    <div><h2>Storyboard</h2><p>The film as a timeline of shots, with the sound under them. Draw the boards, time the shots, play the animatic (see 5).</p></div>
+    <div><h2>Animation</h2><p>One shot: its layers, drawings, keys, pegs, rigs and effects, on its own timeline and node view (see 10–15).</p></div>
+    <div><h2>Export</h2><p>Render settings, a viewer, and the render queue, which knows which shots have changed since they were last rendered (see 16).</p></div>
+  </div>
+
+  <h2 style="margin-top:28px">How the work flows</h2>
+  <ul>
+    <li><b>A storyboard is a timeline of shots,</b> as a sequence is in a film editor. Playing it is the animatic.</li>
+    <li><b>A shot is an animation of its own:</b> its layers, drawings, timeline and node graph. A shot is in one storyboard at most; to use it twice, duplicate it.</li>
+    <li><b>Opening follows the item.</b> Double-click a storyboard to open it on the Storyboard page, a shot to open it on the Animation page. There is no export or import between boarding and animating.</li>
+    <li><b>Boards are kept.</b> Layers drawn on the Storyboard page are <i>board layers</i>. On the Animation page they are at the top of the timeline, faded and locked, as reference; the storyboard keeps playing them, and renders use the animation layers.</li>
+    <li><b>Each page remembers what it has open:</b> going back from a shot to the Storyboard page finds the storyboard with the playhead on that shot.</li>
+  </ul>
+  <div class="note"><b>Panels on any page:</b> the <b>Workspace</b> menu shows or hides every panel and page. <kbd>Tab</kbd> hides every panel but the viewport, and brings them back.</div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>5</span></div>
+</section>
+
+<!-- ───────────────────────────── 4 Media ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">4</span>The Media page</h1>
+  <p class="lead">The project as bins of items (storyboards, shots, pictures, sound) beside the folders on your disk.</p>
+
+  <div class="mock" style="height:350px; padding:8px">
+    <div class="panel" style="position:absolute; left:8px; top:8px; width:380px; height:170px">
+      <div class="tabs"><span class="on">Media Storage</span></div>
+      <div class="bar"><span class="grip">⋮</span><span class="bt">Up</span><span class="bt">Refresh</span><span class="bt">Add to Favourites</span><span class="grip">⋮</span><span class="weak">~/Film/Images</span></div>
+      <div style="display:flex">
+        <div style="width:90px; padding:6px; border-right:1px solid var(--ui-line); height:120px"><div class="weak">Places</div><div>▸ Favourites</div><div>▸ Volumes</div><div>▸ Home</div></div>
+        <div style="flex:1; font-size:10.5px">
+          <div class="row weak"><span style="width:120px">Name</span><span style="width:60px">Type</span><span>Size</span></div>
+          <div class="row"><span style="width:120px">📁︎ Backgrounds</span><span style="width:60px" class="weak">Folder</span></div>
+          <div class="row"><span style="width:120px">forest.png</span><span style="width:60px" class="weak">Picture</span><span class="weak">4.1 MB</span></div>
+          <div class="row"><span style="width:120px">dialogue.wav</span><span style="width:60px" class="weak">Sound</span><span class="weak">2.2 MB</span></div>
+          <div class="row"><span style="width:120px">hero.psd</span><span style="width:60px" class="weak">Picture</span><span class="weak">38 MB</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="position:absolute; left:396px; top:8px; right:8px; height:170px">
+      <div class="tabs"><span class="on">Preview</span></div>
+      <div style="position:absolute; left:14px; right:14px; top:36px; bottom:14px; background:linear-gradient(160deg,#3d6a52,#1f3b4d); border-radius:4px"></div>
+    </div>
+    <div class="panel" style="position:absolute; left:8px; top:186px; width:120px; bottom:8px">
+      <div class="tabs"><span class="on">Bins</span></div>
+      <div class="bar"><span class="bt">New Bin</span></div>
+      <div class="row">⌄ <span class="sel">Master</span> <span class="weak">5</span></div>
+      <div class="row" style="padding-left:20px">Act 1 <span class="weak">3</span></div>
+      <div class="row" style="padding-left:20px">Sound <span class="weak">1</span></div>
+    </div>
+    <div class="panel" style="position:absolute; left:136px; top:186px; right:8px; bottom:8px">
+      <div class="tabs"><span class="on">Media Pool</span></div>
+      <div class="bar"><span class="grip">⋮</span><span class="bt">New Storyboard</span><span class="bt">New Shot</span><span class="bt">Bring Back…</span><span class="grip">⋮</span><span class="bt">Show: every status ⌄</span><span class="bt">Columns ⌄</span></div>
+      <div class="row weak"><span style="width:90px">Name</span><span style="width:84px">Status</span><span style="width:56px">Duration</span><span style="width:46px">Frames</span><span style="width:70px">Type</span><span>Resolution</span></div>
+      <div class="row"><span style="width:90px">Storyboard</span><span style="width:84px"></span><span style="width:56px">00:01:12</span><span style="width:46px">1800</span><span style="width:70px" class="weak">Storyboard</span><span class="weak">1920 × 1080</span></div>
+      <div class="row" style="background:var(--ui-sel)"><span style="width:90px">Shot_01</span><span style="width:84px"><span class="dot" style="background:#6fbf73"></span> Final</span><span style="width:56px">00:00:04</span><span style="width:46px">100</span><span style="width:70px">Shot</span><span>1920 × 1080</span></div>
+      <div class="row"><span style="width:90px">Shot_02</span><span style="width:84px"><span class="dot" style="background:#e0a340"></span> Out · Ana</span><span style="width:56px">00:00:06</span><span style="width:46px">150</span><span style="width:70px" class="weak">Shot</span><span class="weak">1920 × 1080</span></div>
+      <div class="row"><span style="width:90px">Shot_03</span><span style="width:84px"><span class="dot" style="background:#8a8e96"></span> Board</span><span style="width:56px">00:00:03</span><span style="width:46px">75</span><span style="width:70px" class="weak">Shot</span><span class="weak">1920 × 1080</span></div>
+    </div>
+    <span class="c" style="left:-10px; top:20px">1</span>
+    <span class="c" style="left:378px; top:96px">2</span>
+    <span class="c" style="left:-10px; top:200px">3</span>
+    <span class="c" style="left:638px; top:200px">4</span>
+    <span class="c" style="left:206px; top:238px">5</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>Media Storage</b> The folders on disk. Drag pictures and sound from here into a bin.</div></div>
+    <div><span class="c">2</span><div><b>Preview</b> The item or file picked: a picture, a sound, a shot.</div></div>
+    <div><span class="c">3</span><div><b>Bins</b> <i>Master</i> holds everything; make bins of your own to sort it.</div></div>
+    <div><span class="c">4</span><div><b>Media Pool</b> The items of the bin. Double-click a storyboard or a shot to open it.</div></div>
+    <div><span class="c">5</span><div><b>Status</b> Where each shot is in the work; the <i>Show</i> list filters by it.</div></div>
+  </div>
+
+  <div class="cols" style="margin-top:20px">
+    <div>
+      <h2>Bringing things in</h2>
+      <p><b>File ▸ Import Media…</b> takes pictures (PNG, JPEG, TIFF, BMP, WebP, TGA, PSD) and sound (WAV). <b>File ▸ Import Character…</b> takes a layered Photoshop or OpenRaster file as a rig (see 14).</p>
+      <h2>The life of a shot</h2>
+      <p>Each shot has a status: <b>Board → Out → Animation → Post → Final</b>, set in Properties with the shot picked. Sending out and bringing back set it for you.</p>
+    </div>
+    <div>
+      <h2>Sending shots out</h2>
+      <p><b>Storyboard ▸ Send Shot Out…</b> saves each picked shot as a project file of its own, with its drawings, palettes and its stretch of the sound, for an animator to open like any project. The shot is marked <i>Out</i>.</p>
+      <p><b>Bring Back…</b> takes the file when it returns: it shows what the returned shot changes, then takes the shot's place, keeping its name and its clip. The project's settings stay; the palette gets the swatches it lacks. One undo brings the old version back.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>6</span></div>
+</section>
+
+<!-- ───────────────────────────── 5 Storyboard ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">5</span>The Storyboard page</h1>
+  <p class="lead">An editor's timeline of shots, with sound under them. The shot under the playhead is the one you draw on.</p>
+
+  <div class="mock" style="height:250px; padding:0">
+    <div class="bar" style="border-radius:14px 14px 0 0; height:30px; padding:0 12px"><svg class="ic"><use href="#i-play"/></svg><svg class="ic"><use href="#i-loop"/></svg><svg class="ic"><use href="#i-shot-previous"/></svg><svg class="ic"><use href="#i-shot-next"/></svg><span class="grip">⋮</span><span class="bt">Insert Shot</span><span class="bt">Duplicate</span><span class="bt">Delete Shot</span><span class="grip">⋮</span><span class="bt on"><svg class="ic"><use href="#i-magnet"/></svg></span><svg class="ic"><use href="#i-ripple"/></svg><svg class="ic"><use href="#i-razor"/></svg><span class="grip">⋮</span><span class="bt">Add Layer</span><span class="grip">⋮</span><span class="bt">New Drawing</span><span class="bt">Duplicate</span><span class="weak">Hold</span><span class="bt">1 fr</span></div>
+    <div style="position:absolute; left:0; width:96px; top:30px; bottom:0; border-right:1px solid var(--ui-line); padding-top:22px">
+      <div class="row" style="height:34px">Shots</div>
+      <div class="row"><span class="sel">Character</span></div>
+      <div class="row">Background</div>
+      <div class="row">Camera</div>
+      <div class="row" style="margin-top:14px; height:30px">A1 Dialogue</div>
+      <div class="row">A2 Music</div>
+    </div>
+    <div style="position:absolute; left:97px; right:0; top:30px; bottom:0; overflow:hidden">
+      <div style="height:20px; border-bottom:1px solid var(--ui-line); font-size:9.5px; color:var(--ui-weak); padding:4px 4px 0; word-spacing:96px">0s 1s 2s 3s 4s</div>
+      <div style="position:relative; height:200px">
+        <div style="position:absolute; top:4px; left:4px; width:150px; height:30px; border:1px solid #444; background:#2b2c31; border-radius:4px; padding:2px 6px">Shot_01<div class="weak" style="font-size:9px">48 · Final</div><span class="dot" style="position:absolute; right:5px; top:5px; background:#6fbf73"></span></div>
+        <div style="position:absolute; top:4px; left:156px; width:190px; height:30px; border:1.5px solid var(--spark); background:#33302c; border-radius:4px; padding:2px 6px">Shot_02<div class="weak" style="font-size:9px">60 · Animation</div><span class="dot" style="position:absolute; right:5px; top:5px; background:#5aa0d8"></span></div>
+        <div style="position:absolute; top:4px; left:348px; width:150px; height:30px; border:1px solid #444; background:#2b2c31; border-radius:4px; padding:2px 6px">Shot_03<div class="weak" style="font-size:9px">48 · Board</div></div>
+        <div style="position:absolute; top:4px; left:332px; width:30px; height:30px; background:repeating-linear-gradient(135deg,#f2c14e66 0 3px,transparent 3px 7px); border-radius:4px"></div>
+        <div style="position:absolute; top:38px; left:156px; width:60px; height:15px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">1</div>
+        <div style="position:absolute; top:38px; left:217px; width:129px; height:15px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">2</div>
+        <div style="position:absolute; top:57px; left:156px; width:190px; height:15px; background:#3a3b41; border-radius:2px; font-size:9px; padding-left:3px">1</div>
+        <div style="position:absolute; top:98px; left:40px; width:300px; height:26px; background:#2d4a3b; border-radius:3px; overflow:hidden"><svg viewBox="0 0 300 26" preserveAspectRatio="none" style="width:100%;height:100%"><path d="M0 13 L10 6 L20 20 L30 9 L40 17 L50 4 L60 22 L70 12 L80 8 L90 18 L100 10 L110 15 L120 5 L130 21 L140 11 L150 16 L160 7 L170 19 L180 13 L190 9 L200 17 L210 6 L220 20 L230 12 L240 14 L250 8 L260 18 L270 11 L280 15 L290 13 L300 13" stroke="#7fd1a2" fill="none" stroke-width="1"/></svg></div>
+        <div style="position:absolute; top:128px; left:4px; width:494px; height:18px; background:#2c3a4d; border-radius:3px; font-size:9px; padding:2px 5px">theme.wav</div>
+        <div style="position:absolute; top:-20px; bottom:0; left:250px; width:1px; background:var(--spark)"></div>
+        <div style="position:absolute; top:-18px; left:420px; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-top:7px solid #5aa0d8"></div>
+      </div>
+    </div>
+    <span class="c" style="left:-10px; top:4px">1</span>
+    <span class="c" style="left:180px; top:46px">2</span>
+    <span class="c" style="left:436px; top:36px">3</span>
+    <span class="c" style="left:430px; top:96px">4</span>
+    <span class="c" style="left:84px; top:76px">5</span>
+    <span class="c" style="left:84px; top:150px">6</span>
+    <span class="c" style="left:520px; top:30px">7</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>Shots and editing</b> Insert, duplicate, delete; <i>Snap</i>, <i>Ripple</i> and the <i>Razor</i> that splits a shot.</div></div>
+    <div><span class="c">2</span><div><b>Shots</b> Clips on the one shot track. Drag to move, drag an end to trim or lengthen, double-click to animate.</div></div>
+    <div><span class="c">3</span><div><b>Transition</b> A cross dissolve or a dip across a cut.</div></div>
+    <div><span class="c">4</span><div><b>The shot's layers</b> Under the picked shot: its board drawings, at film time.</div></div>
+    <div><span class="c">5</span><div><b>Layers</b> Add a layer, a drawing, or duplicate one at the playhead.</div></div>
+    <div><span class="c">6</span><div><b>Sound tracks</b> Dialogue and music, which may run under several shots.</div></div>
+    <div><span class="c">7</span><div><b>Marker</b> <kbd>Cmd+Shift+M</kbd> at the playhead.</div></div>
+  </div>
+
+  <div class="cols" style="margin-top:20px">
+    <div>
+      <h2>Boarding, step by step</h2>
+      <ul>
+        <li><kbd>Cmd+Shift+N</kbd> adds a shot after this one, as long, with the playhead in it.</li>
+        <li>Drag its right end to set its length.</li>
+        <li>Add a layer, draw; add drawings on later frames.</li>
+        <li>Lay the sound on the tracks below.</li>
+        <li>Play: the film plays from shot to shot.</li>
+      </ul>
+      <h2>Transitions</h2>
+      <p>Right-click a shot ▸ <b>Transition In</b> or <b>Transition Out</b>: Cross Dissolve, Dip to Black, Dip to White. Drag its end to make it longer.</p>
+    </div>
+    <div>
+      <h2>In and out points, handles</h2>
+      <p>A shot has a length, and its clip shows the part of it that is in the cut. Dragging a clip's end inwards trims it; outwards it uncovers the frames beyond, its <b>handles</b>. Nothing is deleted by trimming. On the Animation page the animator has all the frames, with the cut marked.</p>
+      <h2>Panels and notes</h2>
+      <p><b>Storyboard ▸ New Panel at the Playhead</b> splits a shot into panels; the <b>Shot Notes</b> panel holds each panel's action, dialogue and slug. <b>File ▸ Export Storyboard PDF…</b> prints the boards.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>7</span></div>
+</section>
+
+<!-- ───────────────────────────── 6 Tools ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">6</span>The tools</h1>
+  <p class="lead">The tools strip runs down the left of the Storyboard and Animation pages. Each tool's settings are in <b>Tool Properties</b> and in the bar over the viewport.</p>
+  <table>
+    <tr><td><svg class="ic"><use href="#i-mouse-pointer-2"/></svg> &nbsp;<b>Select</b> <kbd>Alt+S</kbd></td><td>Click a drawing to select all of it, or drag a box round a part (or use the Lasso). Drag to move, a corner to scale, the handle above to turn.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-scissors"/></svg> &nbsp;<b>Cutter</b> <kbd>Alt+T</kbd></td><td>Draw an outline across lines to cut them along it; what is inside is selected, to move or delete. With <kbd>Alt</kbd> it is taken away. A flick across a line takes it off to the next crossing.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-brush"/></svg> &nbsp;<b>Brush</b> <kbd>Alt+B</kbd></td><td>Draws with the brush in hand (see 7), with a pen's pressure on macOS, Windows and Linux.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-eraser"/></svg> &nbsp;<b>Eraser</b> <kbd>Alt+E</kbd></td><td>Rubs out. A pen's eraser end is the eraser too.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-paint-bucket"/></svg> &nbsp;<b>Paint Bucket</b> <kbd>Alt+I</kbd></td><td>Click inside lines to fill the colour art there with the swatch in hand, out to the lines. Small gaps in the lines are closed.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-shapes"/></svg> &nbsp;<b>Shape</b></td><td>Line <kbd>Alt+\</kbd>, Rectangle <kbd>Alt+7</kbd>, Ellipse <kbd>Alt+=</kbd>, Polyline, Triangle, Star, Arrow, Spiral, Grid: dragged out and drawn with the brush in hand.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-eyedropper"/></svg> &nbsp;<b>Eyedropper</b></td><td>Click the drawing to take the swatch it is painted with, then go back to the tool you had.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-gradient"/></svg> &nbsp;<b>Gradient/Texture</b></td><td>Click an area painted with a gradient or a picture to see where it lies; drag its ends to move it (see 9).</td></tr>
+    <tr><td><svg class="ic"><use href="#i-spline-pointer"/></svg> &nbsp;<b>Point Editor</b> <kbd>Alt+Q</kbd></td><td>On vector art: click a shape to see its points, drag them and their handles; click its line to add a point.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-text"/></svg> &nbsp;<b>Text</b> <kbd>Alt+Y</kbd></td><td>On a text layer: click to type, or drag a box whose lines wrap. The <b>Text</b> panel sets the font, size and colour.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-zoom"/></svg> &nbsp;<b>Zoom</b> <kbd>Alt+Z</kbd></td><td>Drag right or down to zoom in, left or up out; click for a step in, <kbd>Alt</kbd>-click out; <kbd>Shift</kbd>-drag a box to fill the view with it.</td></tr>
+    <tr><td><svg class="ic"><use href="#i-camera"/></svg> &nbsp;<b>Camera</b></td><td>Drag to pan the shot's camera, drag its round handle to roll it; its zoom and keys are in Tool Properties (see 15).</td></tr>
+    <tr><td><svg class="ic"><use href="#i-bones"/></svg> &nbsp;<b>Bones</b> <kbd>Alt+J</kbd></td><td>Lay a chain of bones on the layer's drawing and edit it at rest; the Transform tool poses it (see 14).</td></tr>
+    <tr><td><svg class="ic"><use href="#i-move"/></svg> &nbsp;<b>Transform</b> <kbd>Shift+T</kbd></td><td>Drag to move the peg with what it carries, drag its round handle to turn it (see 11).</td></tr>
+  </table>
+  <div class="note"><b>Quick switches:</b> <kbd>L</kbd> and <kbd>K</kbd> switch between drawing on the line art and on the colour art. <kbd>2</kbd> and <kbd>1</kbd> zoom in and out, <kbd>V</kbd> and <kbd>C</kbd> turn the view, <kbd>Shift+M</kbd> puts it back.</div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>8</span></div>
+</section>
+
+<!-- ───────────────────────────── 7 Brushes ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">7</span>Brushes</h1>
+  <p class="lead">The <b>Brushes</b> panel lists the brushes by group, each with a stroke of it; under the list are the settings of the one in hand.</p>
+  <div class="cols">
+    <div class="mock" style="height:420px; padding:0">
+      <div class="tabs" style="border-radius:14px 14px 0 0"><span class="on">Brushes</span><span>Palette</span><span>Text</span></div>
+      <div class="bar"><span class="bt on">Names</span><span class="bt">Strokes</span><span class="grip">⋮</span><span class="bt">Undo</span><span class="grip">⋮</span><span class="bt" style="width:90px">Search brushes</span></div>
+      <div style="padding:6px 10px">
+        <div style="font-weight:600">▾ Vector</div>
+        <div style="background:var(--ui-sel); border-radius:4px; padding:3px 8px; margin:3px 0">Brush Pen<svg viewBox="0 0 120 14" style="display:block; width:120px"><path d="M4 9 Q30 1 60 8 T116 6" stroke="#eee" stroke-width="3" stroke-linecap="round" fill="none"/></svg></div>
+        <div style="padding:3px 8px">Marker<svg viewBox="0 0 120 14" style="display:block; width:120px"><path d="M4 9 Q30 1 60 8 T116 6" stroke="#ddd" stroke-width="5" fill="none"/></svg></div>
+        <div style="font-weight:600; margin-top:4px">▸ Vector Stamp</div>
+        <div style="font-weight:600">▸ Dry Media</div>
+      </div>
+      <div style="border-top:1px solid var(--ui-line); padding:8px 10px">
+        <div><span class="bt on">Settings</span> <span class="bt">Save as Preset…</span></div>
+        <div style="font-weight:600; margin-top:8px">▾ Nib</div>
+        <div style="display:grid; grid-template-columns:70px 34px 1fr; gap:5px 6px; align-items:center; margin-top:4px; font-size:10.5px">
+          <span style="height:4px;background:#555;border-radius:2px"></span><span>12</span><span>Size</span>
+          <span style="height:4px;background:#555;border-radius:2px"></span><span>60%</span><span>Roundness</span>
+          <span style="height:4px;background:#555;border-radius:2px"></span><span>30°</span><span>Angle</span>
+        </div>
+        <div style="font-weight:600; margin-top:8px">▸ Width &nbsp; ▸ Opacity &nbsp; ▸ Smoothing</div>
+        <div style="font-weight:600; margin-top:2px">▸ Line &nbsp; ▸ Boil &nbsp; ▸ Stamped Tip</div>
+      </div>
+      <span class="c" style="left:290px; top:16px">1</span>
+      <span class="c" style="left:290px; top:84px">2</span>
+      <span class="c" style="left:290px; top:208px">3</span>
+      <span class="c" style="left:290px; top:260px">4</span>
+    </div>
+    <div>
+      <div class="legend one" style="margin-top:0">
+        <div><span class="c">1</span><div><b>Names or Strokes</b> List the brushes by name, or by a stroke of each. Search finds one by name.</div></div>
+        <div><span class="c">2</span><div><b>Groups</b> Click a brush to take it.</div></div>
+        <div><span class="c">3</span><div><b>Save as Preset…</b> Keeps the brush as you set it, in <i>My Brushes</i> or a group you name.</div></div>
+        <div><span class="c">4</span><div><b>Settings</b> Folded in sections. A vector brush has its nib, width, opacity, smoothing, line, boil and stamped tip; a bitmap brush its tip, shape dynamics, scattering, texture, dual brush, colour and transfer.</div></div>
+      </div>
+      <h2 style="margin-top:22px">The groups that come with Iskra</h2>
+      <p><b>General</b> Hard and soft rounds, with and without pressure, airbrushes, a flat calligraphy brush.</p>
+      <p><b>Dry Media</b> Pencils, chalk, charcoal, pastel, wax crayon, dry bristle, rake.</p>
+      <p><b>Wet Media</b> Watercolour, ink pen, oil bristle, gouache, ink wash.</p>
+      <p><b>Special Effects</b> Spatter, stipple, confetti, foliage, grass, sparkle, textures, halftone.</p>
+      <p><b>Vector</b> Lines that stay sharp at any size: ink pen, brush pen, fine liner, marker, tapered, calligraphy, soft pencil, a boiling line.</p>
+      <p><b>Vector Surface</b> Brushes that leave filled areas, not lines, as paint does.</p>
+      <p><b>Vector Stamp</b> A picture stamped along the line.</p>
+    </div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div>
+      <h2>Stamped tips</h2>
+      <p>In <b>Stamped Tip</b>, <b>Tip from a Picture…</b> takes any PNG as the brush's tip. It is stamped along the line at the <i>Spacing</i> you set, turned with the line or not, with <i>Angle Jitter</i> and <i>Angle Drift</i>; <i>Build Up</i> lets the stamps darken where they overlap. The tip is kept with the brush and in the project.</p>
+    </div>
+    <div>
+      <h2>Bringing brushes in</h2>
+      <p><b>Drawing ▸ Import Brushes…</b> reads Photoshop brushes (<b>.abr</b>) and Iskra's own brush files. <b>Export Brushes…</b> writes them for another machine.</p>
+      <p><b>Brush slots:</b> put a brush in one of five slots (its menu ▸ <i>Slot</i>) and pick it with <b>Drawing ▸ Brush in Slot 1–5</b>; give those a key in Settings.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>9</span></div>
+</section>
+
+<!-- ───────────────────────────── 8 Art layers ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">8</span>Art layers, bitmap and vector</h1>
+  <p class="lead">A drawing has art layers inside it, one over another. Colour is painted under the lines, so it never covers them, and the lines stay clean.</p>
+  <div class="cols">
+    <div>
+      <div class="mock" style="height:210px; display:flex; align-items:center; justify-content:center">
+        <svg viewBox="0 0 300 180" style="width:300px">
+          <g transform="translate(30 110) skewX(-30) scale(1 .45)"><rect width="190" height="120" rx="6" fill="#2b2c31" stroke="#555"/><circle cx="95" cy="60" r="40" fill="#f3b38a"/><text x="200" y="70" fill="#8a8e96" font-size="17" font-family="Inter">Colour art</text></g>
+          <g transform="translate(30 62) skewX(-30) scale(1 .45)"><rect width="190" height="120" rx="6" fill="#2b2c3180" stroke="#777"/><circle cx="95" cy="60" r="40" fill="none" stroke="#fff" stroke-width="5"/><text x="200" y="70" fill="#d7d9dd" font-size="17" font-family="Inter">Line art</text></g>
+          <g transform="translate(30 14) skewX(-30) scale(1 .45)"><rect width="190" height="120" rx="6" fill="#2b2c3140" stroke="#555" stroke-dasharray="6 5"/><path d="M80 40 l14 -10" stroke="#fff" stroke-width="5"/><text x="200" y="70" fill="#8a8e96" font-size="17" font-family="Inter">Overart</text></g>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <table>
+        <tr><td><b>Line art</b> <kbd>L</kbd></td><td>The lines. Where you draw unless you choose.</td></tr>
+        <tr><td><b>Colour art</b> <kbd>K</kbd></td><td>The colour under the lines: the Paint Bucket fills it, out to the lines above.</td></tr>
+        <tr><td><b>Overart</b></td><td>Over the lines: highlights, shines, notes.</td></tr>
+      </table>
+      <p style="margin-top:10px">Pick the art layer with the four buttons on the viewport's bar; the last shows all of them alike. <b>View ▸ Show the Line Art Alone</b> (and the others) hides the rest while you work.</p>
+    </div>
+  </div>
+
+  <h2 style="margin-top:26px">Bitmap or vector, layer by layer</h2>
+  <div class="cols">
+    <div>
+      <p><b>Bitmap layers</b> are pixels, at a resolution higher than the shot's if you like (Settings ▸ Format ▸ <i>New layer resolution</i>), so a camera that pushes in stays sharp. Each pixel remembers the <b>swatch</b> it was painted with, so changing the swatch recolours it (see 9).</p>
+      <p>The <b>Mixer Brush</b> paints <i>free colour</i>, pixels of their own colours that mix as paint does, for painted backgrounds.</p>
+    </div>
+    <div>
+      <p><b>Vector layers</b> keep the shapes you draw. They stay sharp at any size, the Point Editor moves their points, and the Select tool's <i>Pieces</i> pick the parts of a line between crossings.</p>
+      <p>Add one with <b>Drawing ▸ New Vector Layer</b> or the timeline's <b>Add Layer</b>. <b>Make Vector Layer…</b> traces a bitmap layer's drawings, with a preview; <b>Make Bitmap Layer</b> turns vector art into pixels.</p>
+    </div>
+  </div>
+  <div class="note"><b>Text layers</b> (Drawing ▸ New Text Layer) hold boxes of text, typed with the Text tool and laid out with a real font. <kbd>Cmd+Shift+T</kbd> turns a text into vector shapes, to draw on.</div>
+  <h2 style="margin-top:22px">Guides for drawing</h2>
+  <p><b>Drawing ▸ New Ruler</b> and <b>New 1-, 2- or 3-Point Perspective</b> put a guide on the shot: with it in hand, a stroke runs along the line the guide gives through where it began. Drag its handles to set it, and pick it again from Tool Properties' <i>Guide</i> list. <b>Put the Drawing Guide Away</b> lets the brush go free.</p>
+  <div class="foot"><span>Iskra · Quick guide</span><span>10</span></div>
+</section>
+
+<!-- ───────────────────────────── 9 Palettes ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">9</span>Palettes and swatches</h1>
+  <p class="lead">You paint with swatches, not loose colours. Change a swatch and every drawing painted with it changes, in every shot.</p>
+  <div class="cols">
+    <div class="mock" style="height:300px; padding:0">
+      <div class="tabs" style="border-radius:14px 14px 0 0"><span>Brushes</span><span class="on">Palette</span></div>
+      <div class="bar"><span class="bt">New</span><span class="bt">Remove</span><span>‹ ›</span><span class="grip">⋮</span><span class="bt on">Names</span><span class="grip">⋮</span><span class="bt">Character ⌄</span></div>
+      <div style="padding:8px 10px; display:grid; gap:5px">
+        <div style="display:flex; gap:8px; align-items:center"><span class="sw" style="background:#111"></span>Line</div>
+        <div style="display:flex; gap:8px; align-items:center; background:var(--ui-sel); border-radius:4px; margin:0 -4px; padding:0 4px"><span class="sw" style="background:#f3b38a"></span>Skin</div>
+        <div style="display:flex; gap:8px; align-items:center"><span class="sw" style="background:#c9744a"></span>Skin shade</div>
+        <div style="display:flex; gap:8px; align-items:center"><span class="sw" style="background:#3c5aa8"></span>Coat</div>
+        <div style="display:flex; gap:8px; align-items:center"><span class="sw" style="background:linear-gradient(90deg,#fbbf5a,#e65d3a)"></span>Sky <span class="weak">gradient</span></div>
+        <div style="display:flex; gap:8px; align-items:center"><span class="sw" style="background:repeating-linear-gradient(45deg,#5d7d4a 0 4px,#4a663a 4px 8px)"></span>Grass <span class="weak">picture</span></div>
+      </div>
+      <span class="c" style="left:-10px; top:26px">1</span>
+      <span class="c" style="left:290px; top:90px">2</span>
+      <span class="c" style="left:290px; top:180px">3</span>
+      <span class="c" style="left:290px; top:26px">4</span>
+    </div>
+    <div>
+      <div class="legend one" style="margin-top:0">
+        <div><span class="c">1</span><div><b>New, Remove, ‹ ›</b> A new swatch like the one in hand, take it out, move it earlier or later.</div></div>
+        <div><span class="c">2</span><div><b>The swatch in hand</b> Click to paint with it; double-click to change its colour.</div></div>
+        <div><span class="c">3</span><div><b>Gradients and pictures</b> A swatch can be a linear or round gradient, or a picture repeated.</div></div>
+        <div><span class="c">4</span><div><b>Palettes</b> A project can have several, one for each character or set.</div></div>
+      </div>
+      <h2>Protect a swatch</h2>
+      <p><b>Drawing ▸ Protect the Swatch in Hand</b> keeps the brush and the bucket off it, so you can paint round a colour.</p>
+      <h2>Select by swatch</h2>
+      <p><b>Select What the Swatch in Hand Painted</b> picks every pixel of it, to move or change.</p>
+    </div>
+  </div>
+  <div class="cols" style="margin-top:20px">
+    <div>
+      <h2>Styles: night, rain, a second costume</h2>
+      <p><b>New Palette Style</b> gives every swatch a second colour, under a name. A shot or a layer shown in that style is painted in it; the drawings stay the same. A <b>Style</b> node does the same to part of a shot (see 13).</p>
+      <h2>Gradient and picture swatches</h2>
+      <p>Each filled area of such a swatch has the gradient or the picture fitted to it. Move it with the <b>Gradient/Texture</b> tool; a marquee or <kbd>Shift</kbd>-click lays one across several areas.</p>
+    </div>
+    <div>
+      <h2>Palettes as files</h2>
+      <p><b>Import Palette…</b> and <b>Export the Palette in Hand…</b> read and write Iskra palettes, with their styles, and GIMP palettes (<b>.gpl</b>). <b>Update the Palette in Hand from a File…</b> gives the swatches that share a name with the file's the file's colours, so a palette made elsewhere recolours the film.</p>
+      <h2>Tidy up</h2>
+      <p><b>Remove Unused Swatches</b> takes out those nothing is painted with. A removed swatch's paint shows as a missing colour, bright magenta, until it is given another.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>11</span></div>
+</section>
+
+<!-- ───────────────────────────── 10 Timeline ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">10</span>The timeline: drawings and holds</h1>
+  <p class="lead">Each layer is a row of its drawings, each held for as many frames as its block is long. There is no exposure sheet: the timeline is it.</p>
+  <div class="mock" style="height:210px; padding:0">
+    <div class="bar" style="border-radius:14px 14px 0 0; height:30px; padding:0 12px"><svg class="ic"><use href="#i-play"/></svg><svg class="ic"><use href="#i-loop"/></svg><span class="grip">⋮</span><span class="bt">Animate</span><span class="bt">Add Key</span><span class="grip">⋮</span><span class="bt">New Drawing</span><span class="bt">Duplicate</span><span class="weak">Hold</span><span class="bt">2 fr</span><span class="bt">Whole Shot</span><span class="bt">Extend</span><span class="grip">⋮</span><span>Frame <span class="bt">9</span> of <span class="bt">48</span></span></div>
+    <div style="position:absolute; left:0; width:140px; top:30px; bottom:0; border-right:1px solid var(--ui-line); padding-top:20px">
+      <div class="row">⌄ ⟂ Character-P</div>
+      <div class="row" style="padding-left:20px"><span class="sel">Character</span> <span style="margin-left:auto" class="weak">🔒︎ ◉</span></div>
+      <div class="row" style="padding-left:20px">Mouth</div>
+      <div class="row">⌄ ⟂ Background-P</div>
+      <div class="row" style="padding-left:20px">Background</div>
+      <div class="row weak">♪ dialogue.wav</div>
+    </div>
+    <div style="position:absolute; left:141px; right:0; top:30px; bottom:0; overflow:hidden">
+      <div style="height:20px; border-bottom:1px solid var(--ui-line); font-size:9.5px; color:var(--ui-weak); padding:4px 4px 0; word-spacing:60px">1 5 10 15 20 25 30</div>
+      <div style="position:relative">
+        <div style="position:absolute; top:22px; left:2px; width:40px; height:15px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">1</div>
+        <div style="position:absolute; top:22px; left:43px; width:40px; height:15px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">2</div>
+        <div style="position:absolute; top:22px; left:84px; width:40px; height:15px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">3</div>
+        <div style="position:absolute; top:22px; left:125px; width:40px; height:15px; background:var(--ui-sel); border-radius:2px; font-size:9px; padding-left:3px">2</div>
+        <div style="position:absolute; top:22px; left:165px; width:4px; height:15px; background:#fff; border-radius:1px"></div>
+        <div style="position:absolute; top:41px; left:2px; width:60px; height:15px; background:#3a3b41; border-radius:2px; font-size:9px; padding-left:3px">A</div>
+        <div style="position:absolute; top:41px; left:63px; width:40px; height:15px; background:#3a3b41; border-radius:2px; font-size:9px; padding-left:3px">O</div>
+        <div style="position:absolute; top:41px; left:104px; width:80px; height:15px; background:#3a3b41; border-radius:2px; font-size:9px; padding-left:3px">M</div>
+        <div style="position:absolute; top:79px; left:2px; width:440px; height:15px; background:#2f3036; border-radius:2px; font-size:9px; padding-left:3px">1</div>
+        <div style="position:absolute; top:98px; left:2px; width:300px; height:15px; background:#2d4a3b; border-radius:2px"></div>
+        <div style="position:absolute; top:0; height:200px; left:96px; width:1px; background:var(--spark)"></div>
+      </div>
+    </div>
+    <span class="c" style="left:200px; top:32px">1</span>
+    <span class="c" style="left:600px; top:32px">2</span>
+    <span class="c" style="left:318px; top:70px">3</span>
+    <span class="c" style="left:236px; top:58px">4</span>
+    <span class="c" style="left:110px; top:150px">5</span>
+    <span class="c" style="left:246px; top:168px">6</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>New Drawing</b> On the layer in hand at the playhead, held as the <i>Hold</i> box says, or to the next drawing with <i>Whole Shot</i>.</div></div>
+    <div><span class="c">2</span><div><b>Frame</b> Where the playhead is, and the shot's length: click to type another.</div></div>
+    <div><span class="c">3</span><div><b>A drawing's end</b> Drag it to hold the drawing longer or shorter.</div></div>
+    <div><span class="c">4</span><div><b>Drawings by name</b> The same drawing can be exposed again later, as the mouth's shapes are.</div></div>
+    <div><span class="c">5</span><div><b>Sound</b> The stretch of the storyboard's sound under this shot, to scrub and to lip-sync to.</div></div>
+    <div><span class="c">6</span><div><b>Playhead</b> Drag it, or click the ruler. <kbd>.</kbd> and <kbd>,</kbd> step a frame.</div></div>
+  </div>
+  <h2 style="margin-top:22px">Timing by key</h2>
+  <table class="keys">
+    <tr><td>New drawing / duplicate the drawing on this frame</td><td><kbd>Alt+Shift+R</kbd> / <kbd>Alt+Shift+D</kbd></td></tr>
+    <tr><td>Hold one frame longer / take this frame out</td><td><kbd>+</kbd> / <kbd>−</kbd></td></tr>
+    <tr><td>Hold the drawing before the playhead on to it (Extend)</td><td><kbd>Alt+Shift+E</kbd></td></tr>
+    <tr><td>Swap to the next / previous drawing of the layer</td><td><kbd>]</kbd> / <kbd>[</kbd></td></tr>
+    <tr><td>Play or stop</td><td><kbd>Shift+Enter</kbd></td></tr>
+  </table>
+  <div class="note"><b>Layers and pegs:</b> a layer can sit under pegs, which move what is under them. <kbd>Cmd+P</kbd> adds a peg above the layer in hand; the <b>+</b> on a row adds one there. Drag rows to reorder them; the lock and the eye lock and hide a layer.</div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>12</span></div>
+</section>
+
+<!-- ───────────────────────────── 11 Keys ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">11</span>Keyframes, pegs and motion</h1>
+  <p class="lead">Pegs carry layers, and keyframes on a peg move it through the shot. The path it takes is drawn in the viewport, where it can be bent.</p>
+  <div class="cols">
+    <div>
+      <h2>Animate a peg</h2>
+      <ul>
+        <li>Pick the peg (its row, or the layer under it) and the <b>Transform</b> tool <kbd>Shift+T</kbd>.</li>
+        <li>Switch <b>Animate</b> on: it goes red, and what you move is keyed on the frame you move it on.</li>
+        <li>Go to another frame and move it again. The frames between are worked out.</li>
+      </ul>
+      <p>With <b>Animate</b> off, a move is the same on every frame: what has keys moves on all of them alike.</p>
+      <p><b>Adjust</b> makes a change on one key the same on every key picked on the timeline: move one 20 to the right and they all move 20.</p>
+    </div>
+    <div class="mock" style="height:240px">
+      <svg viewBox="0 0 300 220" style="width:100%; height:100%">
+        <rect x="0" y="0" width="300" height="220" fill="#ececec" rx="6"/>
+        <path d="M30 180 C 80 40, 160 40, 200 110 S 270 170, 280 60" fill="none" stroke="#e46b2a" stroke-width="1.6" stroke-dasharray="1 0"/>
+        <g fill="#a8322d"><circle cx="30" cy="180" r="5"/><circle cx="200" cy="110" r="5"/><circle cx="280" cy="60" r="5"/></g>
+        <g fill="#f27a2e"><circle cx="70" cy="105" r="2.2"/><circle cx="100" cy="72" r="2.2"/><circle cx="130" cy="62" r="2.2"/><circle cx="160" cy="70" r="2.2"/><circle cx="183" cy="88" r="2.2"/><circle cx="225" cy="140" r="2.2"/><circle cx="252" cy="140" r="2.2"/><circle cx="270" cy="105" r="2.2"/></g>
+        <path d="M200 110 l-34 -20 M200 110 l34 20" stroke="#555" stroke-width="1"/><circle cx="166" cy="90" r="3" fill="#fff" stroke="#555"/><circle cx="234" cy="130" r="3" fill="#fff" stroke="#555"/>
+        <circle cx="130" cy="62" r="13" fill="#f3b38a" stroke="#222"/>
+      </svg>
+      <span class="c" style="left:8px; top:200px">1</span>
+      <span class="c" style="left:200px; top:96px">2</span>
+      <span class="c" style="left:248px; top:166px">3</span>
+    </div>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>Keyframe</b> A red dot on the path. Drag it to move the peg on that frame.</div></div>
+    <div><span class="c">2</span><div><b>Handles</b> Bend the path through a key; <b>Path: Corner at Keyframe</b> breaks it into a corner.</div></div>
+    <div><span class="c">3</span><div><b>Frames</b> One dot a frame: close together it slows, far apart it is quick. Slide them along the path to space the in-betweens.</div></div>
+  </div>
+  <div class="cols" style="margin-top:20px">
+    <div>
+      <h2>Easing</h2>
+      <p>Right-click a key on the timeline or use <b>Animation ▸ Keyframe:</b> <i>Linear, Slow In, Slow Out, Slow In and Out, Hold</i>. <b>Hold Keyframes on Twos</b> (or ones, threes) steps the motion as drawn animation does. <kbd>Cmd+L</kbd> switches keys between held and animated.</p>
+      <h2>Function curves</h2>
+      <p>The <b>Function Curves</b> panel shows each value of what is picked as a curve over time, its keys with handles to shape the ease. <kbd>F</kbd> shows the selected curves whole.</p>
+    </div>
+    <div>
+      <h2>By key</h2>
+      <table class="keys">
+        <tr><td>Add / remove a keyframe</td><td><kbd>F6</kbd> / <kbd>F7</kbd></td></tr>
+        <tr><td>Next / previous keyframe</td><td><kbd>'</kbd> / <kbd>;</kbd></td></tr>
+        <tr><td>Key all on this frame</td><td>Key All</td></tr>
+        <tr><td>Add a parent peg</td><td><kbd>Cmd+P</kbd></td></tr>
+      </table>
+      <h2>Breakdowns and cycles</h2>
+      <p><b>Breakdowns</b> draws the timing chart between two keys on the row, a line for each in-between: drag a line to space them. <b>Keyframe Cycle</b> repeats the keys picked after the last of them. Both are parts of the timeline bar (its <b>…</b> menu shows them).</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>13</span></div>
+</section>
+
+<!-- ───────────────────────────── 12 Onion ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">12</span>Onion skin and substitution</h1>
+  <p class="lead">Aids for drawing in time. They are shown in the viewport only and are never rendered.</p>
+  <div class="cols">
+    <div class="mock" style="height:300px; padding:0">
+      <div class="tabs" style="border-radius:14px 14px 0 0"><span class="on">Onion Skin</span></div>
+      <div style="padding:10px 12px; display:grid; gap:8px">
+        <div><span class="bt on">Onion Skin</span> <span class="bt">Light Table</span></div>
+        <div><span class="bt on">By Drawing</span> <span class="bt">By Frame</span></div>
+        <div style="display:flex; gap:16px; align-items:center"><span>Before <span class="bt">2</span> <span class="sw" style="width:14px;height:14px;background:#e0574f;vertical-align:middle"></span></span><span>After <span class="bt">2</span> <span class="sw" style="width:14px;height:14px;background:#4fae6a;vertical-align:middle"></span></span></div>
+        <div>Opacity <span style="display:inline-block;width:80px;height:4px;background:#555;border-radius:2px;vertical-align:middle"></span> 40%</div>
+        <div><span class="bt">Line Art Only</span> <span class="bt">Outlines Only</span></div>
+        <div><span class="bt">Pin This Drawing</span> <span class="bt">Clear Pins</span></div>
+        <div class="weak" style="font-size:10.5px">Shift and trace: Alt-drag moves the onion skin, Alt-Shift-drag turns it.</div>
+      </div>
+      <span class="c" style="left:250px; top:34px">1</span>
+      <span class="c" style="left:250px; top:66px">2</span>
+      <span class="c" style="left:250px; top:98px">3</span>
+      <span class="c" style="left:250px; top:134px">4</span>
+      <span class="c" style="left:250px; top:158px">5</span>
+      <span class="c" style="left:250px; top:196px">6</span>
+    </div>
+    <div>
+      <div class="legend one" style="margin-top:0">
+        <div><span class="c">1</span><div><b>Onion Skin</b> <kbd>Alt+O</kbd> The drawings before and after, faint. <b>Light Table</b> <kbd>Shift+L</kbd> fades the other layers.</div></div>
+        <div><span class="c">2</span><div><b>By Drawing</b> The previous and next different drawings, skipping holds; <b>By Frame</b> every frame in the range.</div></div>
+        <div><span class="c">3</span><div><b>Before and After</b> How many, each side in its colour.</div></div>
+        <div><span class="c">4</span><div><b>Line Art Only, Outlines Only</b> Less on screen.</div></div>
+        <div><span class="c">5</span><div><b>Pins</b> Keep a drawing shown as it is on this frame, on every frame: a key pose to work towards.</div></div>
+        <div><span class="c">6</span><div><b>Shift and trace</b> Slide the ghosts under the drawing to trace an arc.</div></div>
+      </div>
+    </div>
+  </div>
+  <h2 style="margin-top:26px">Drawing substitution: lip-sync and hands</h2>
+  <div class="mock" style="height:92px; display:flex; gap:10px; align-items:center; padding:12px 16px">
+    <div style="text-align:center"><div style="width:56px;height:46px;background:#ececec;border-radius:4px;display:flex;align-items:center;justify-content:center"><svg width="30" height="16"><path d="M2 8 Q15 0 28 8 Q15 16 2 8" fill="#7a2a2a" stroke="#222"/></svg></div>A</div>
+    <div style="text-align:center"><div style="width:56px;height:46px;background:#ececec;border-radius:4px;display:flex;align-items:center;justify-content:center;outline:2px solid var(--spark)"><svg width="30" height="20"><ellipse cx="15" cy="10" rx="8" ry="8" fill="#7a2a2a" stroke="#222"/></svg></div>O</div>
+    <div style="text-align:center"><div style="width:56px;height:46px;background:#ececec;border-radius:4px;display:flex;align-items:center;justify-content:center"><svg width="30" height="10"><path d="M2 5 H28" stroke="#222" stroke-width="2"/></svg></div>M</div>
+    <div style="text-align:center"><div style="width:56px;height:46px;background:#ececec;border-radius:4px;display:flex;align-items:center;justify-content:center"><svg width="30" height="16"><path d="M2 6 Q15 14 28 6" fill="none" stroke="#222" stroke-width="2"/></svg></div>E</div>
+    <div style="flex:1; padding-left:14px" class="weak">Drawing Substitution: every drawing of the layer in hand. Click one to show it on this frame.</div>
+  </div>
+  <p style="margin-top:12px">Put the playhead on a word, click the mouth that says it; <kbd>]</kbd> and <kbd>[</kbd> step through the drawings. The thumbnails are framed alike, so the shapes can be told apart by where they are as well as by what they are. Right-click one to rename or delete it.</p>
+  <div class="note"><b>Skins:</b> a skin is another set of drawings for the same rig: a second costume, a night version. <b>File ▸ Add Skin From Folder…</b> or <b>Import Skins…</b> bring one in; the shot or a layer is shown in the skin you pick, its pegs, bones and animation the same.</div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>14</span></div>
+</section>
+
+<!-- ───────────────────────────── 13 Nodes ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">13</span>The node view and effects</h1>
+  <p class="lead">What the shot shows is wired here: layers and pegs into composites, through effects, into a display. The timeline and the node view are two views of the same shot.</p>
+  <div class="mock" style="height:270px; padding:0">
+    <div class="bar" style="border-radius:14px 14px 0 0; height:30px; padding:0 12px"><span class="bt">Arrange</span><span class="grip">⋮</span><svg class="ic"><use href="#i-map"/></svg><span class="grip">⋮</span><span class="bt">Delete Picked Nodes with All in Them</span><span class="bt">+</span><span class="grip">⋮</span><span style="display:inline-block;width:60px;height:4px;background:#555;border-radius:2px"></span><span>100%</span><span>Zoom</span></div>
+    <svg viewBox="0 0 650 230" style="position:absolute; left:0; top:30px; width:100%; height:240px">
+      <g font-size="10" fill="#d7d9dd" font-family="Inter">
+        <rect x="40" y="20" width="90" height="22" rx="4" fill="#2b2c31" stroke="#f27a2e"/><text x="85" y="35" text-anchor="middle">Character</text>
+        <rect x="40" y="80" width="90" height="22" rx="4" fill="#2b2c31" stroke="#9a7ad8"/><text x="85" y="95" text-anchor="middle">Glow</text>
+        <rect x="190" y="20" width="90" height="22" rx="4" fill="#2b2c31" stroke="#5aa0d8"/><text x="235" y="35" text-anchor="middle">Background</text>
+        <rect x="190" y="80" width="90" height="22" rx="4" fill="#2b2c31" stroke="#9a7ad8"/><text x="235" y="95" text-anchor="middle">Blur</text>
+        <rect x="330" y="20" width="90" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="375" y="35" text-anchor="middle">Snow</text>
+        <rect x="150" y="140" width="110" height="22" rx="4" fill="#2b2c31" stroke="#9a7ad8"/><text x="205" y="155" text-anchor="middle">Composite</text>
+        <rect x="150" y="196" width="110" height="22" rx="4" fill="#2b2c31" stroke="#777"/><text x="205" y="211" text-anchor="middle">Display</text>
+        <rect x="490" y="80" width="90" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="535" y="95" text-anchor="middle">Camera-P</text>
+        <rect x="490" y="140" width="90" height="22" rx="4" fill="#2b2c31" stroke="#e0a340"/><text x="535" y="155" text-anchor="middle">Camera</text>
+        <path d="M85 42 V80 M235 42 V80 M85 102 C85 125 190 120 190 140 M235 102 C235 125 210 120 210 140 M375 42 C375 110 230 110 230 140 M205 162 V196 M535 102 V140" stroke="#f27a2e" fill="none" stroke-width="1.2"/>
+      </g>
+    </svg>
+    <span class="c" style="left:30px; top:-10px">1</span>
+    <span class="c" style="left:390px; top:-10px">2</span>
+    <span class="c" style="left:28px; top:52px">3</span>
+    <span class="c" style="left:28px; top:114px">4</span>
+    <span class="c" style="left:280px; top:172px">5</span>
+    <span class="c" style="left:290px; top:228px">6</span>
+    <span class="c" style="left:600px; top:122px">7</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>Arrange</b> Lays the nodes out tidily, now or as you go.</div></div>
+    <div><span class="c">2</span><div><b>+</b> Adds a node; right-click the view for <i>Add Effect</i>, groups, a new display.</div></div>
+    <div><span class="c">3</span><div><b>Layers</b> A drawing layer is a node; drag its port to wire it.</div></div>
+    <div><span class="c">4</span><div><b>Effects</b> What goes through them is changed.</div></div>
+    <div><span class="c">5</span><div><b>Composite</b> Lays what comes in over each other, in the order of its ports.</div></div>
+    <div><span class="c">6</span><div><b>Display</b> What the viewport shows; a shot can have several.</div></div>
+    <div><span class="c">7</span><div><b>Camera</b> On its own peg, which the Camera tool moves.</div></div>
+  </div>
+  <h2 style="margin-top:20px">The effects</h2>
+  <div class="cols3" style="font-size:12.5px">
+    <div><b>Light and shade</b><br>Glow, Drop Shadow, Highlight, Tone</div>
+    <div><b>Blur</b><br>Blur, Directional Blur, Radial Blur</div>
+    <div><b>Colour</b><br>Colour Correction (levels, curves, hue, tint), Style</div>
+    <div style="margin-top:8px"><b>Combine</b><br>Cutter (a matte), Blend modes</div>
+    <div style="margin-top:8px"><b>Sources</b><br>Colour Card</div>
+    <div style="margin-top:8px"><b>Particles</b><br>Rain, Snow, Wind, Speed Lines, Burst; sprites from a layer</div>
+  </div>
+  <p style="margin-top:12px">Pick a node to set it in <b>Properties</b>; any value can be keyed. Effects are drawn on the graphics card. <b>Group the Picked</b> folds nodes into one box; double-click a folded group to open it. <kbd>A</kbd> and <kbd>D</kbd> switch the picked nodes on and off.</p>
+  <div class="foot"><span>Iskra · Quick guide</span><span>15</span></div>
+</section>
+
+<!-- ───────────────────────────── 14 Rigs ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">14</span>Rigs, characters and the library</h1>
+  <p class="lead">A cut-out character is a tree of pegs and layers, its parts bent by deformers. Rig it once, keep it in the library, and bring it into every shot.</p>
+  <div class="cols">
+    <div>
+      <h2>Bring a character in</h2>
+      <p><b>File ▸ Import Character…</b> reads a layered <b>Photoshop</b> (.psd, .psb) or <b>OpenRaster</b> (.ora, which Krita saves) file: every part becomes a layer, placed as it is in the document, each on a peg of its own.</p>
+      <p>Tags at the start of a layer's or group's name say more: <span class="mono">[merge]</span> flattens a group into one drawing, <span class="mono">[slot]</span> makes a group one layer whose drawings are its parts (mouths, hands), <span class="mono">[ignore]</span> leaves it out, and <span class="mono">[skin Name]</span> makes its parts that skin's drawings. <b>Import Skins…</b> brings a changed design in over the rig, its pegs, bones and animation kept.</p>
+      <h2>Bones</h2>
+      <p>With the <b>Bones</b> tool <kbd>Alt+J</kbd>, drag along a part to lay a chain of bones on its drawing. Each bone holds the part of the drawing near it; the parts between two bones are shared between them. Pose it with the <b>Transform</b> tool: a bone turns about its start, and its first joint moves the whole chain. Where the chain has <b>IK</b> on, drag its goal and the bones reach for it.</p>
+    </div>
+    <div class="mock" style="height:300px">
+      <svg viewBox="0 0 300 280" style="width:100%; height:100%">
+        <rect width="300" height="280" rx="6" fill="#ececec"/>
+        <path d="M110 40 q40 -14 70 4 q14 40 -8 70 q16 50 -4 120 l-18 0 q-6 -60 -16 -100 q-26 -40 -24 -94 z" fill="#f3b38a" stroke="#222" stroke-width="1.5"/>
+        <g stroke="#f27a2e" stroke-width="3" fill="#f27a2e"><path d="M140 50 L150 120 L160 200"/><circle cx="140" cy="50" r="5"/><circle cx="150" cy="120" r="5"/><circle cx="160" cy="200" r="5"/></g>
+        <circle cx="160" cy="200" r="10" fill="none" stroke="#a8322d" stroke-width="2"/>
+        <path d="M40 240 C 90 200, 200 260, 260 210" fill="none" stroke="#5aa0d8" stroke-width="2" stroke-dasharray="5 4"/>
+        <g fill="#5aa0d8"><circle cx="40" cy="240" r="4"/><circle cx="150" cy="228" r="4"/><circle cx="260" cy="210" r="4"/></g>
+      </svg>
+      <span class="c" style="left:106px; top:50px">1</span>
+      <span class="c" style="left:196px; top:192px">2</span>
+      <span class="c" style="left:258px; top:204px">3</span>
+    </div>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>A chain of bones</b> laid along the arm; its joints turn.</div></div>
+    <div><span class="c">2</span><div><b>IK goal</b> A ring with a cross; drag it and the chain reaches.</div></div>
+    <div><span class="c">3</span><div><b>A curve deformer</b> A smooth line the drawing follows as it bends: a tail, hair.</div></div>
+  </div>
+  <div class="cols" style="margin-top:18px">
+    <div>
+      <h2>Three kinds of deformer</h2>
+      <p><b>Bones</b> for limbs; a <b>Curve</b> for what bends along its length; an <b>Envelope</b>, a closed outline round a shape, to squash, stretch and bulge it, as a cheek. Pick the kind in the Bones tool's properties.</p>
+    </div>
+    <div>
+      <h2>The library</h2>
+      <p>The <b>Library</b> panel shows folders of templates (<b>Animation ▸ Add Library Folder…</b>). Drag nodes from the node view or the timeline onto it to save a template; drag a template into a shot to put a copy there. A template's <i>Apply onto the Shot's Own…</i> applies it to the nodes of the same names, as a pose onto a rig.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>16</span></div>
+</section>
+
+<!-- ───────────────────────────── 15 Camera ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">15</span>The camera and depth</h1>
+  <p class="lead">Iskra is 2D, but its layers lie at depths in front of a camera, so a camera move gives parallax, and what is nearer is in front.</p>
+  <div class="cols">
+    <div class="mock" style="height:270px; padding:0">
+      <div class="tabs" style="border-radius:14px 14px 0 0"><span class="on">Top View</span><span>Side View</span></div>
+      <svg viewBox="0 0 300 240" style="width:100%; height:240px">
+        <path d="M150 220 L40 30 M150 220 L260 30" stroke="#5aa0d8" stroke-width="1" fill="none" stroke-dasharray="4 3"/>
+        <rect x="140" y="212" width="20" height="14" rx="2" fill="#e0a340"/>
+        <path d="M60 60 H240" stroke="#5aa0d8" stroke-width="3"/><text x="245" y="64" fill="#8a8e96" font-size="10" font-family="Inter">Sky</text>
+        <path d="M80 110 H220" stroke="#6fbf73" stroke-width="3"/><text x="224" y="114" fill="#8a8e96" font-size="10" font-family="Inter">Hills</text>
+        <path d="M100 150 H200" stroke="#d7d9dd" stroke-width="1" stroke-dasharray="3 3"/><text x="204" y="154" fill="#8a8e96" font-size="10" font-family="Inter">frame at 0</text>
+        <path d="M128 170 H172" stroke="#f27a2e" stroke-width="3"/><text x="176" y="174" fill="#8a8e96" font-size="10" font-family="Inter">Character</text>
+        <circle cx="150" cy="110" r="5" fill="#fff" stroke="#222"/>
+      </svg>
+      <span class="c" style="left:120px; top:236px">1</span>
+      <span class="c" style="left:30px; top:110px">2</span>
+      <span class="c" style="left:120px; top:136px">3</span>
+    </div>
+    <div>
+      <div class="legend one" style="margin-top:0">
+        <div><span class="c">1</span><div><b>The camera</b> with what it sees opening out in front of it. Drag it to move its peg.</div></div>
+        <div><span class="c">2</span><div><b>Layers</b> Each drawing is a flat card, a line here, at the depth its pegs give it. Drag a line to move it nearer or farther.</div></div>
+        <div><span class="c">3</span><div><b>Pivot handle</b> of a selected peg: moves it in depth and across, where many lines lie on one another.</div></div>
+      </div>
+      <h2>The Camera tool</h2>
+      <p>Drag in the viewport to pan the camera, drag its round handle to roll it. Its zoom, and the keys of its moves, are in Tool Properties. <b>Animation ▸ Add Camera Peg</b> gives a shot a camera to move if it has none.</p>
+      <p><b>View ▸ Flat View, Not Through the Camera</b> shows the drawings flat, without the camera, to draw on them as they are.</p>
+    </div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div>
+      <h2>Drawing larger than the shot</h2>
+      <p>Bitmap layers can have more pixels than the shot, so a push-in stays sharp. Vector art is drawn at the size it is seen. When a layer is shown larger than its pixels allow, it is outlined in the viewport as a warning.</p>
+    </div>
+    <div>
+      <h2>Guides over the frame</h2>
+      <p><b>View ▸ Guide:</b> Action Safe, Title Safe, Rule of Thirds, Centre Cross, 12 Fields; <b>My Guides…</b> for your own. <b>Aspect Mask</b> on the view bar darkens what is outside another frame's shape, as a cinema crop.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>17</span></div>
+</section>
+
+<!-- ───────────────────────────── 16 Export ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">16</span>The Export page</h1>
+  <p class="lead">Rendering is shot by shot: a queue that knows which shots are rendered and which have changed since.</p>
+  <div class="mock" style="height:300px; padding:0">
+    <div style="position:absolute; left:0; top:0; bottom:0; width:190px; border-right:1px solid var(--ui-line); padding:10px; font-size:10.5px">
+      <div style="font-weight:600">Render Settings</div>
+      <div class="bt" style="margin:6px 0">Custom settings ⌄</div>
+      <div style="display:grid; grid-template-columns:56px 1fr; gap:6px; align-items:center; margin-top:6px">
+        <span class="weak" style="text-align:right">Export</span><span>◉ Animation ○ Storyboard</span>
+        <span class="weak" style="text-align:right">As</span><span>◉ A file per shot</span>
+        <span class="weak" style="text-align:right">Format</span><span class="bt">ProRes (.mov) ⌄</span>
+        <span class="weak" style="text-align:right">Resolution</span><span class="bt">Shot size ⌄</span>
+        <span class="weak" style="text-align:right">Type</span><span class="bt">16 bits a channel ⌄</span>
+        <span class="weak" style="text-align:right">Frames</span><span>◉ Part in the cut<br>&nbsp;&nbsp; with 8 frames of handles</span>
+      </div>
+      <div style="position:absolute; bottom:10px"><span class="bt">Add to Render Queue</span></div>
+    </div>
+    <div style="position:absolute; left:191px; right:170px; top:0; bottom:0">
+      <div class="bar"><span>Pass: Final</span><span class="grip">⋮</span><span class="bt">Burn-in</span><span class="grip">⋮</span><span class="mono" style="font-size:10px">DURATION 100 frames</span></div>
+      <div style="position:absolute; left:20px; right:20px; top:38px; height:150px; background:linear-gradient(160deg,#fbbf5a,#e65d3a 60%,#7a3a5a); border-radius:3px"></div>
+      <div style="position:absolute; left:10px; right:10px; top:200px; display:flex; gap:10px; justify-content:center"><svg class="ic"><use href="#i-play"/></svg><svg class="ic"><use href="#i-loop"/></svg></div>
+      <div style="position:absolute; left:10px; right:10px; bottom:12px; display:flex; gap:6px">
+        <div style="width:70px; height:42px; border:1.5px solid var(--spark); border-radius:4px; padding:3px; font-size:9.5px">Shot_01<div class="weak">changed</div></div>
+        <div style="width:70px; height:42px; border:1px solid #444; border-radius:4px; padding:3px; font-size:9.5px">Shot_02<div class="weak">rendered</div></div>
+        <div style="width:70px; height:42px; border:1px solid #444; border-radius:4px; padding:3px; font-size:9.5px">Shot_03<div class="weak">not rendered</div></div>
+      </div>
+    </div>
+    <div style="position:absolute; right:0; top:0; bottom:0; width:170px; border-left:1px solid var(--ui-line); padding:10px; font-size:10.5px">
+      <div style="font-weight:600">Render Queue</div>
+      <div style="margin:6px 0"><span class="bt">Render All</span> <span class="bt">Stop</span></div>
+      <div style="background:var(--ui-raised); border-radius:4px; padding:5px; margin-top:6px">Shot_01 · ProRes<div style="height:4px; background:#444; border-radius:2px; margin-top:4px"><div style="width:60%; height:4px; background:var(--spark); border-radius:2px"></div></div></div>
+      <div style="background:var(--ui-raised); border-radius:4px; padding:5px; margin-top:6px">Shot_03 · ProRes<div class="weak">waiting</div></div>
+    </div>
+    <span class="c" style="left:170px; top:6px">1</span>
+    <span class="c" style="left:170px; top:270px">2</span>
+    <span class="c" style="left:196px; top:30px">3</span>
+    <span class="c" style="left:430px; top:236px">4</span>
+    <span class="c" style="left:620px; top:6px">5</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>Render Settings</b> What, as what, how big, at what depth. Save them as a preset.</div></div>
+    <div><span class="c">2</span><div><b>Add to Render Queue</b> The shots picked below, or all of them.</div></div>
+    <div><span class="c">3</span><div><b>Pass and burn-in</b> Which pass, and what is burned into the picture: guides, the mask, the shot's name, the frame count.</div></div>
+    <div><span class="c">4</span><div><b>The storyboard's shots</b> Click to pick; <i>Changed</i> picks those changed since their last render.</div></div>
+    <div><span class="c">5</span><div><b>Render Queue</b> The jobs, in order, as they go.</div></div>
+  </div>
+  <div class="cols" style="margin-top:20px">
+    <div>
+      <h2>What comes out</h2>
+      <ul>
+        <li><b>Pictures:</b> PNG, JPEG, TIFF and OpenEXR sequences, at 8 or 16 bits or 32-bit float a channel, with transparency.</li>
+        <li><b>Movies:</b> ProRes (.mov) and H.264 (.mp4), with the sound.</li>
+        <li><b>Each shot's part in the cut</b>, with handles, or <b>each shot whole</b>.</li>
+        <li><b>One movie</b> of the whole storyboard, or a file per shot.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>For the edit</h2>
+      <p>The cut goes to the editor as an edit list: <b>EDL</b>, <b>OpenTimelineIO</b> or <b>FCPXML</b>, with each rendered shot where it lies, the transitions and the sound. The handles let the editor slide a cut.</p>
+      <h2>Without the app</h2>
+      <p class="mono" style="font-size:11px">iskra-render Film.iskra --format mov</p>
+      <p class="small">renders from the command line, for render farms and scripts.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>18</span></div>
+</section>
+
+<!-- ───────────────────────────── 17 Make it yours ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">17</span>Make it yours</h1>
+  <p class="lead">Every page's layout, every bar and every key can be changed, and kept.</p>
+  <div class="cols">
+    <div>
+      <h2>Panels</h2>
+      <ul>
+        <li><b>Move:</b> drag a panel by its tab, beside another, into its tabs, or to an edge to split it.</li>
+        <li><b>Own window:</b> right-click its tab ▸ <i>Detach into Its Own Window</i>, for a second screen. Close that window to put the panel back.</li>
+        <li><b>Show and hide:</b> <b>Workspace ▸</b> any panel, or the cross on its tab. <kbd>Tab</kbd> hides all but the viewport.</li>
+      </ul>
+      <h2>Bars</h2>
+      <p>Each panel's bar is made of parts between the <b>⋮</b> grips. Drag a grip to move its part, or into the panel's lower half to make a second bar at its foot. The <b>…</b> at the bar's end shows or hides parts and puts the bar back as it was.</p>
+      <h2>Workspaces</h2>
+      <p><b>Workspace ▸ Save Workspace As…</b> keeps the page's layout under a name; switch between them in the Workspace menu. <b>Reset Layout</b> brings back the page's own. The app reopens as it was closed.</p>
+    </div>
+    <div>
+      <h2>Settings <span class="small">(<kbd>Cmd+,</kbd>)</span></h2>
+      <table>
+        <tr><td>General</td><td>Your name, autosave, how long new drawings hold, Animate at start, tablet input.</td></tr>
+        <tr><td>Interface</td><td>Dark or light, the size of the interface, the canvas surround.</td></tr>
+        <tr><td>Memory and GPU</td><td>The playback cache, memory for effects, the graphics card.</td></tr>
+        <tr><td>Shortcuts</td><td>The keymap: <b>Harmony</b>, <b>Animate</b> or <b>TVPaint</b> layouts, and your own keys, for every page or one.</td></tr>
+        <tr><td>New Projects</td><td>The resolution and frame rate presets.</td></tr>
+        <tr><td>Format</td><td>This project's frame rate, pixel aspect, new layer resolution and colour working space (sRGB or linear).</td></tr>
+      </table>
+      <h2>Command palette</h2>
+      <p><kbd>Cmd+Shift+P</kbd> finds any command, brush or script by typing a few letters of its name.</p>
+    </div>
+  </div>
+  <h2 style="margin-top:22px">Scripts</h2>
+  <div class="cols">
+    <p>Scripts are <b>JavaScript</b>. They edit the project through the app's own commands, so anything the menus do a script can do. Put them in the scripts folder (<b>Scripts ▸ Show Scripts Folder</b>): each becomes a command, in the menus, the command palette and the Shortcuts table.</p>
+    <p>The <b>Script Console</b> runs a line at a time, to try things. <b>Run Script File…</b> runs one from anywhere. Scripts may only write files if <b>Settings ▸ Scripting</b> lets them.</p>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>19</span></div>
+</section>
+
+<!-- ───────────────────────────── 18 Shortcuts ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">18</span>Keyboard shortcuts</h1>
+  <p class="lead" style="margin-bottom:10px">The starting keymap, after Harmony's layout. Change any key in Settings ▸ Shortcuts; every other command can get one there too.</p>
+  <div class="cols" style="gap:0 28px">
+    <table class="keys">
+      <tr class="head"><td colspan="2">File and edit</td></tr>
+      <tr><td>New / Open / Save</td><td><kbd>Cmd+N</kbd> / <kbd>Cmd+O</kbd> / <kbd>Cmd+S</kbd></td></tr>
+      <tr><td>Save As</td><td><kbd>Cmd+Shift+S</kbd></td></tr>
+      <tr><td>Undo / Redo</td><td><kbd>Cmd+Z</kbd> / <kbd>Cmd+Shift+Z</kbd></td></tr>
+      <tr><td>Duplicate</td><td><kbd>Cmd+D</kbd></td></tr>
+      <tr><td>Delete</td><td><kbd>Delete</kbd>, <kbd>Backspace</kbd></td></tr>
+      <tr><td>Select all / Deselect</td><td><kbd>Cmd+A</kbd> / <kbd>Esc</kbd></td></tr>
+      <tr><td>Command palette</td><td><kbd>Cmd+Shift+P</kbd></td></tr>
+      <tr><td>Settings</td><td><kbd>Cmd+,</kbd></td></tr>
+      <tr class="head"><td colspan="2">Tools</td></tr>
+      <tr><td>Select / Cutter</td><td><kbd>Alt+S</kbd> / <kbd>Alt+T</kbd></td></tr>
+      <tr><td>Brush / Eraser</td><td><kbd>Alt+B</kbd> / <kbd>Alt+E</kbd></td></tr>
+      <tr><td>Paint Bucket</td><td><kbd>Alt+I</kbd></td></tr>
+      <tr><td>Line / Rectangle / Ellipse</td><td><kbd>Alt+\</kbd> / <kbd>Alt+7</kbd> / <kbd>Alt+=</kbd></td></tr>
+      <tr><td>Point Editor / Text</td><td><kbd>Alt+Q</kbd> / <kbd>Alt+Y</kbd></td></tr>
+      <tr><td>Bones / Transform</td><td><kbd>Alt+J</kbd> / <kbd>Shift+T</kbd></td></tr>
+      <tr><td>Zoom tool</td><td><kbd>Alt+Z</kbd></td></tr>
+      <tr><td>Draw on line art / colour art</td><td><kbd>L</kbd> / <kbd>K</kbd></td></tr>
+      <tr><td>Text to shapes</td><td><kbd>Cmd+Shift+T</kbd></td></tr>
+      <tr class="head"><td colspan="2">View</td></tr>
+      <tr><td>Zoom in / out</td><td><kbd>2</kbd> / <kbd>1</kbd></td></tr>
+      <tr><td>Zoom to 100% / reset view</td><td><kbd>Shift+Z</kbd> / <kbd>Shift+M</kbd></td></tr>
+      <tr><td>Turn view / put it straight</td><td><kbd>V</kbd>, <kbd>C</kbd> / <kbd>Shift+X</kbd></td></tr>
+      <tr><td>Onion skin / light table</td><td><kbd>Alt+O</kbd> / <kbd>Shift+L</kbd></td></tr>
+      <tr><td>Only the viewport</td><td><kbd>Tab</kbd></td></tr>
+    </table>
+    <table class="keys">
+      <tr class="head"><td colspan="2">Drawings and timing</td></tr>
+      <tr><td>New / duplicate drawing</td><td><kbd>Alt+Shift+R</kbd> / <kbd>Alt+Shift+D</kbd></td></tr>
+      <tr><td>Hold longer / shorter</td><td><kbd>+</kbd> / <kbd>−</kbd></td></tr>
+      <tr><td>Extend the hold</td><td><kbd>Alt+Shift+E</kbd></td></tr>
+      <tr><td>Next / previous drawing</td><td><kbd>]</kbd> / <kbd>[</kbd></td></tr>
+      <tr class="head"><td colspan="2">Play</td></tr>
+      <tr><td>Play or stop</td><td><kbd>Shift+Enter</kbd></td></tr>
+      <tr><td>Next / previous frame</td><td><kbd>.</kbd> / <kbd>,</kbd></td></tr>
+      <tr class="head"><td colspan="2">Animation</td></tr>
+      <tr><td>Add / remove keyframe</td><td><kbd>F6</kbd> / <kbd>F7</kbd></td></tr>
+      <tr><td>Next / previous keyframe</td><td><kbd>'</kbd> / <kbd>;</kbd></td></tr>
+      <tr><td>Held or animated keys</td><td><kbd>Cmd+L</kbd></td></tr>
+      <tr><td>Add parent peg</td><td><kbd>Cmd+P</kbd></td></tr>
+      <tr><td>Show selected curves</td><td><kbd>F</kbd></td></tr>
+      <tr><td>Picked nodes on / off</td><td><kbd>A</kbd> / <kbd>D</kbd></td></tr>
+      <tr class="head"><td colspan="2">Storyboard</td></tr>
+      <tr><td>New shot / duplicate shot</td><td><kbd>Cmd+Shift+N</kbd> / <kbd>Cmd+Shift+D</kbd></td></tr>
+      <tr><td>Split shot at the playhead</td><td><kbd>Cmd+Shift+B</kbd></td></tr>
+      <tr><td>Marker</td><td><kbd>Cmd+Shift+M</kbd></td></tr>
+      <tr><td>Next / previous marker</td><td><kbd>Shift+↓</kbd> / <kbd>Shift+↑</kbd></td></tr>
+      <tr><td>In / out point</td><td><kbd>Cmd+Shift+I</kbd> / <kbd>Cmd+Shift+O</kbd></td></tr>
+    </table>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>20</span></div>
+</section>
+
+<!-- ───────────────────────────── 19 Good to know ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">19</span>Good to know</h1>
+  <p class="lead" style="margin-bottom:12px"></p>
+  <table>
+    <tr><td style="font-size:11px; font-weight:600; letter-spacing:.8px; color:var(--muted); border-bottom:2px solid #cfd3d8">QUESTION</td><td style="font-size:11px; font-weight:600; letter-spacing:.8px; color:var(--muted); border-bottom:2px solid #cfd3d8">ANSWER</td></tr>
+    <tr><td><b>Part of the drawing is bright magenta.</b></td><td>It was painted with a swatch that has been removed. Paint it with another, or bring the palette back.</td></tr>
+    <tr><td><b>The bucket fills the whole drawing.</b></td><td>It fills the colour art out to the line art. Check you are on the colour art (<kbd>K</kbd>), and that the lines close; small gaps are closed for you.</td></tr>
+    <tr><td><b>I can't draw on a layer.</b></td><td>It may be locked (the lock on its row), or a board layer, which is locked on the Animation page. Or the playhead is on an empty cell: draw, and a drawing is made there.</td></tr>
+    <tr><td><b>What I moved moved on every frame.</b></td><td><b>Animate</b> was off. Switch it on to key a move on the frame it is made on.</td></tr>
+    <tr><td><b>The pen draws as a mouse.</b></td><td>The status bar says <i>Pen</i> or <i>Mouse</i>. Choose how tablet input is read in <b>Settings ▸ General</b>; the <b>Log</b> panel says what the pen reports.</td></tr>
+    <tr><td><b>A panel is gone.</b></td><td><b>Workspace ▸</b> the panel's name, or <b>Workspace ▸ Reset Layout</b>. <kbd>Tab</kbd> may have hidden the panels.</td></tr>
+    <tr><td><b>A shortcut does nothing.</b></td><td>The command may not apply now (it is greyed in its menu), or typing in a box takes the keys. <b>Settings ▸ Shortcuts</b> says where a key is given twice.</td></tr>
+    <tr><td><b>Playback is slow the first time round.</b></td><td>Frames are made as they are first played and kept on the graphics card; the timeline marks those that are ready. Give the playback cache more memory in <b>Settings ▸ Memory and GPU</b>.</td></tr>
+    <tr><td><b>Is my work saved?</b></td><td>Autosave saves a minute after each change. <b>File ▸ Save As…</b> makes a copy under another name.</td></tr>
+    <tr><td><b>Something went wrong.</b></td><td>The <b>Log</b> panel (Workspace ▸ Log) says what the app did and what failed. <b>Copy</b> takes all of it, for a report.</td></tr>
+    <tr><td><b>Where are my settings?</b></td><td>macOS: <span class="mono">~/Library/Application Support/Iskra</span><br>Windows: <span class="mono">%APPDATA%\Iskra</span><br>Linux: <span class="mono">~/.config/iskra</span><br>Your keymaps, workspaces and brushes are there; copy the folder to keep them.</td></tr>
+    <tr><td><b>Can I get my drawings out of a project without Iskra?</b></td><td><span class="mono">iskra-extract Film.iskra</span> writes the drawings, the timing and the palette out of a project file.</td></tr>
+  </table>
+  <div class="note" style="margin-top:26px"><b>Iskra</b> is free and open source, under the MIT or Apache 2.0 licence. It is inspired by the workflows of Harmony and TVPaint and shares no code or artwork with them.</div>
+  <div class="foot"><span>Iskra · Quick guide · Version 0.1</span><span>21</span></div>
+</section>
+
+</body>
+</html>

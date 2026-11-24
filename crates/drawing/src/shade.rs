@@ -334,6 +334,15 @@ struct LayerAreas {
     areas: Vec<Area>,
 }
 
+/// Pixels side by side in a row, of one swatch: what areas are found from.
+#[derive(Clone, Copy)]
+struct Run {
+    y: i32,
+    x0: i32,
+    x1: i32,
+    swatch: SwatchId,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Area {
     pub swatch: SwatchId,
@@ -376,46 +385,100 @@ impl LayerAreas {
     }
 
     /// The areas of `surface`'s pixels whose swatches `shade` gives as not solid.
-    fn of<'a>(art: ArtLayerKind, surface: &IndexedSurface, shade: &dyn Fn(SwatchId) -> Shade<'a>, placements: &[Placement]) -> Option<LayerAreas> {
+    fn of<'a>(art: ArtLayerKind, surface: &IndexedSurface, shade: &(dyn Fn(SwatchId) -> Shade<'a> + Sync), placements: &[Placement]) -> Option<LayerAreas> {
+        use rayon::prelude::*;
         let bounds = surface.bounds();
         if bounds.is_empty() {
             return None;
         }
-        let pixels = surface.pixels(bounds);
         let width = bounds.width() as usize;
-        let mut solid = std::collections::HashMap::new();
-        let mut shaded = |swatch: SwatchId| *solid.entry(swatch).or_insert_with(|| !shade(swatch).is_solid());
-        let wanted: Vec<bool> = pixels.iter().map(|pixel| pixel.coverage > 0 && shaded(pixel.swatch)).collect();
-        if !wanted.contains(&true) {
-            return None;
-        }
-        let mut labels = vec![0u32; pixels.len()];
-        let mut areas = Vec::new();
-        let mut stack = Vec::new();
-        for seed in 0..pixels.len() {
-            if !wanted[seed] || labels[seed] > 0 {
-                continue;
-            }
-            let swatch = pixels[seed].swatch;
-            let label = areas.len() as u32 + 1;
-            let mut reach = Rect::new(i32::MAX, i32::MAX, i32::MIN, i32::MIN);
-            labels[seed] = label;
-            stack.push(seed);
-            while let Some(i) = stack.pop() {
-                let (x, y) = ((i % width) as i32 + bounds.x0, (i / width) as i32 + bounds.y0);
-                reach = Rect::new(reach.x0.min(x), reach.y0.min(y), reach.x1.max(x + 1), reach.y1.max(y + 1));
-                let column = i % width;
-                let near =
-                    [(column > 0).then(|| i - 1), (column + 1 < width).then(|| i + 1), i.checked_sub(width), Some(i + width).filter(|&j| j < pixels.len())];
-                for j in near.into_iter().flatten() {
-                    if wanted[j] && labels[j] == 0 && pixels[j].swatch == swatch {
-                        labels[j] = label;
-                        stack.push(j);
+        // Each row's runs of pixels of one swatch that is not solid, read a row at a time and
+        // the rows at once, the shade of the swatch last met in the row kept.
+        let rows: Vec<Vec<Run>> = (bounds.y0..bounds.y1)
+            .into_par_iter()
+            .map(|y| {
+                let mut runs: Vec<Run> = Vec::new();
+                let mut last: Option<(SwatchId, bool)> = None;
+                for (i, pixel) in surface.pixels(Rect::new(bounds.x0, y, bounds.x1, y + 1)).into_iter().enumerate() {
+                    if pixel.coverage == 0 {
+                        continue;
+                    }
+                    let shaded = match last {
+                        Some((id, shaded)) if id == pixel.swatch => shaded,
+                        _ => {
+                            let shaded = !shade(pixel.swatch).is_solid();
+                            last = Some((pixel.swatch, shaded));
+                            shaded
+                        }
+                    };
+                    if !shaded {
+                        continue;
+                    }
+                    let x = bounds.x0 + i as i32;
+                    match runs.last_mut() {
+                        Some(run) if run.x1 == x && run.swatch == pixel.swatch => run.x1 += 1,
+                        _ => runs.push(Run { y, x0: x, x1: x + 1, swatch: pixel.swatch }),
                     }
                 }
+                runs
+            })
+            .collect();
+        let runs: Vec<Run> = rows.iter().flatten().copied().collect();
+        if runs.is_empty() {
+            return None;
+        }
+        // Runs of one swatch that touch, side by side in rows next to each other, are of one
+        // area; each area's root is its first run, so its first pixel is its root's first.
+        let mut parent: Vec<usize> = (0..runs.len()).collect();
+        fn root(parent: &mut [usize], mut i: usize) -> usize {
+            while parent[i] != i {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
             }
-            let inside = [(seed % width) as i32 + bounds.x0, (seed / width) as i32 + bounds.y0];
-            areas.push(Area { swatch, bounds: reach, inside, frame: Frame::default(), placed: false });
+            i
+        }
+        let (mut above, mut start) = (0..0, 0);
+        for row in &rows {
+            let here = start..start + row.len();
+            let mut k = above.start;
+            for i in here.clone() {
+                let run = runs[i];
+                // The runs above that end before this one starts touch neither it nor any after.
+                while k < above.end && runs[k].x1 <= run.x0 {
+                    k += 1;
+                }
+                let mut j = k;
+                while j < above.end && runs[j].x0 < run.x1 {
+                    if runs[j].swatch == run.swatch {
+                        let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+                        parent[a.max(b)] = a.min(b);
+                    }
+                    j += 1;
+                }
+            }
+            (above, start) = (here.clone(), here.end);
+        }
+        let mut labels = vec![0u32; width * bounds.height() as usize];
+        let mut areas: Vec<Area> = Vec::new();
+        let mut label_of = vec![0u32; runs.len()];
+        for (i, run) in runs.iter().enumerate() {
+            let first = root(&mut parent, i);
+            if first == i {
+                areas.push(Area {
+                    swatch: run.swatch,
+                    bounds: Rect::new(run.x0, run.y, run.x1, run.y + 1),
+                    inside: [run.x0, run.y],
+                    frame: Frame::default(),
+                    placed: false,
+                });
+                label_of[i] = areas.len() as u32;
+            } else {
+                label_of[i] = label_of[first];
+                let area = &mut areas[label_of[i] as usize - 1];
+                area.bounds = area.bounds.union(&Rect::new(run.x0, run.y, run.x1, run.y + 1));
+            }
+            let at = (run.y - bounds.y0) as usize * width;
+            labels[at + (run.x0 - bounds.x0) as usize..at + (run.x1 - bounds.x0) as usize].fill(label_of[i]);
         }
         let mut layer = LayerAreas { art, bounds, labels, areas };
         // Each takes the first placement of its art layer and swatch whose point lies in it;
@@ -440,31 +503,76 @@ impl LayerAreas {
 /// straight-alpha RGBA8 in rows: its gradients and pictures where `areas` has them, and its
 /// other swatches in their one colour.
 pub fn shaded<'a>(surface: &IndexedSurface, art: ArtLayerKind, rect: Rect, areas: &Areas, shade: impl Fn(SwatchId) -> Shade<'a>, linear: bool) -> Vec<[u8; 4]> {
-    let mut pixels = surface.to_rgba8(rect, |swatch| shade(swatch).color());
-    let Some(own) = areas.layers.iter().find(|own| own.art == art) else { return pixels };
-    let part = rect.intersect(&own.bounds);
-    if part.is_empty() {
+    let width = rect.width() as usize;
+    let mut pixels = vec![[0u8; 4]; width * rect.height() as usize];
+    if width == 0 {
         return pixels;
     }
-    let (width, part_width) = (rect.width() as usize, part.width() as usize);
-    let painted = surface.pixels(part);
-    for y in part.y0..part.y1 {
-        for x in part.x0..part.x1 {
-            let Some(label) = own.label(x, y) else { continue };
-            let area = &own.areas[label as usize - 1];
-            let pixel = painted[(y - part.y0) as usize * part_width + (x - part.x0) as usize];
-            let [r, g, b, a] = shade(area.swatch).at([x as f32 + 0.5, y as f32 + 0.5], &area.frame, linear);
-            let coverage = f32::from(pixel.coverage) / 65535.0;
-            pixels[(y - rect.y0) as usize * width + (x - rect.x0) as usize] = [r, g, b, (f32::from(a) * coverage + 0.5) as u8];
-        }
+    let mut shades = Shades::new(&shade);
+    for (row, out) in pixels.chunks_exact_mut(width).enumerate() {
+        shaded_row(surface, art, rect.x0, rect.y0 + row as i32, areas, &mut shades, linear, out);
     }
     pixels
+}
+
+/// The shades of swatches as they are asked for, the last one kept: the next pixel most
+/// likely has the same swatch, and a palette finds a swatch by going through them all.
+struct Shades<'s, 'a, F: Fn(SwatchId) -> Shade<'a>> {
+    shade: &'s F,
+    last: Option<(SwatchId, Shade<'a>)>,
+}
+
+impl<'s, 'a, F: Fn(SwatchId) -> Shade<'a>> Shades<'s, 'a, F> {
+    fn new(shade: &'s F) -> Self {
+        Shades { shade, last: None }
+    }
+
+    fn of(&mut self, swatch: SwatchId) -> Shade<'a> {
+        match self.last {
+            Some((id, shade)) if id == swatch => shade,
+            _ => {
+                let shade = (self.shade)(swatch);
+                self.last = Some((swatch, shade));
+                shade
+            }
+        }
+    }
+}
+
+/// The pixels of row `y` of `surface` from `x0`, as many as `out` holds, as [`shaded`] paints
+/// them: each pixel read once.
+#[allow(clippy::too_many_arguments)]
+fn shaded_row<'a, F: Fn(SwatchId) -> Shade<'a>>(
+    surface: &IndexedSurface,
+    art: ArtLayerKind,
+    x0: i32,
+    y: i32,
+    areas: &Areas,
+    shades: &mut Shades<'_, 'a, F>,
+    linear: bool,
+    out: &mut [[u8; 4]],
+) {
+    let own = areas.layers.iter().find(|own| own.art == art);
+    let painted = surface.pixels(Rect::new(x0, y, x0 + out.len() as i32, y + 1));
+    for (i, (pixel, out)) in painted.iter().zip(out.iter_mut()).enumerate() {
+        if pixel.coverage == 0 {
+            *out = [0; 4];
+            continue;
+        }
+        let x = x0 + i as i32;
+        let coverage = f32::from(pixel.coverage) / 65535.0;
+        let [r, g, b, a] = match own.and_then(|own| Some(&own.areas[own.label(x, y)? as usize - 1])) {
+            Some(area) => shades.of(area.swatch).at([x as f32 + 0.5, y as f32 + 0.5], &area.frame, linear),
+            None => shades.of(pixel.swatch).color(),
+        };
+        *out = [r, g, b, (f32::from(a) * coverage + 0.5) as u8];
+    }
 }
 
 impl Drawing {
     /// The filled areas of its swatches that `shade` gives as not solid, each with where its
     /// gradient or picture lies: by the drawing's placement for it, or fitted to it.
-    pub fn areas<'a>(&self, shade: impl Fn(SwatchId) -> Shade<'a>) -> Areas {
+    pub fn areas<'a>(&self, shade: impl Fn(SwatchId) -> Shade<'a> + Sync) -> Areas {
         let layers = self.art_layers.iter().filter_map(|layer| {
             let surface = match &layer.content {
                 ArtContent::Indexed(surface) => surface,
@@ -479,24 +587,46 @@ impl Drawing {
     /// As [`Drawing::to_rgba8`], with the swatches that `shade` gives as gradients and
     /// pictures painted so, where `areas` (of the same drawing and shades) says they lie.
     /// Gradients are blended in linear light when `linear`.
-    pub fn to_rgba8_shaded<'a>(&self, rect: Rect, areas: &Areas, shade: impl Fn(SwatchId) -> Shade<'a>, linear: bool) -> Vec<[u8; 4]> {
+    pub fn to_rgba8_shaded<'a>(&self, rect: Rect, areas: &Areas, shade: impl Fn(SwatchId) -> Shade<'a> + Sync, linear: bool) -> Vec<[u8; 4]> {
+        use rayon::prelude::*;
         if areas.is_empty() {
             return self.to_rgba8(rect, |swatch| shade(swatch).color());
         }
-        let mut out = vec![[0u8; 4]; rect.width() as usize * rect.height() as usize];
-        for layer in &self.art_layers {
-            let pixels = match &layer.content {
-                ArtContent::Rgba(surface) => {
-                    let mut pixels = vec![[0u8; 4]; out.len()];
-                    surface.read_rgba8_into(rect, &mut pixels);
-                    pixels
-                }
-                content => shaded(content.indexed().expect("indexed or vector art has indexed pixels"), layer.kind, rect, areas, &shade, linear),
-            };
-            for (under, over) in out.iter_mut().zip(pixels) {
-                *under = over_straight(over, *under);
-            }
+        let width = rect.width() as usize;
+        let mut out = vec![[0u8; 4]; width * rect.height() as usize];
+        if width == 0 {
+            return out;
         }
+        // Each art layer only over the part of `rect` it has paint in, and the rows each at
+        // once: this is done for every look at a drawing being drawn on with a gradient.
+        let layers: Vec<_> =
+            self.art_layers.iter().map(|layer| (layer, layer.content.bounds().intersect(&rect))).filter(|(_, part)| !part.is_empty()).collect();
+        out.par_chunks_mut(width).enumerate().for_each(|(row, out)| {
+            let y = rect.y0 + row as i32;
+            let mut shades = Shades::new(&shade);
+            let mut pixels = Vec::new();
+            for (layer, part) in layers.iter().filter(|(_, part)| (part.y0..part.y1).contains(&y)) {
+                pixels.clear();
+                pixels.resize(part.width() as usize, [0u8; 4]);
+                match &layer.content {
+                    ArtContent::Rgba(surface) => surface.read_rgba8_into(Rect::new(part.x0, y, part.x1, y + 1), &mut pixels),
+                    content => shaded_row(
+                        content.indexed().expect("indexed or vector art has indexed pixels"),
+                        layer.kind,
+                        part.x0,
+                        y,
+                        areas,
+                        &mut shades,
+                        linear,
+                        &mut pixels,
+                    ),
+                }
+                let from = (part.x0 - rect.x0) as usize;
+                for (under, over) in out[from..from + pixels.len()].iter_mut().zip(&pixels) {
+                    *under = over_straight(*over, *under);
+                }
+            }
+        });
         out
     }
 

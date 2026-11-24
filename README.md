@@ -8,6 +8,9 @@ timeline and node graph, and render the shots out one by one or as the whole fil
 
 ![The animation page: viewport, timeline, node view and tool properties](docs/screenshots/animation.png)
 
+The [quick guide](docs/Iskra-Quick-Guide.pdf) shows the app page by page: its panels, tools,
+menus and shortcuts.
+
 ## Screenshots
 
 The app has four pages, switched from the bar at the bottom of the window.

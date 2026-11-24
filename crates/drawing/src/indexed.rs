@@ -167,6 +167,21 @@ impl IndexedSurface {
         pixels.map(decode).filter(|pixel| pixel.coverage > 0).map(|pixel| pixel.swatch.base()).collect()
     }
 
+    /// Whether anything is painted with a swatch that `wanted` says yes to, asked of each
+    /// swatch as it is met: of a drifted colour, its swatch.
+    pub fn paints_with(&self, wanted: impl Fn(SwatchId) -> bool) -> bool {
+        let mut last: Option<(SwatchId, bool)> = None;
+        let pixels = self.surface.tiles().flat_map(|(_, tile)| tile.bytes().as_chunks::<BPP>().0);
+        pixels.map(decode).filter(|pixel| pixel.coverage > 0).any(|pixel| match last {
+            Some((swatch, answer)) if swatch == pixel.swatch => answer,
+            _ => {
+                let answer = wanted(pixel.swatch.base());
+                last = Some((pixel.swatch, answer));
+                answer
+            }
+        })
+    }
+
     pub fn pixel(&self, x: i32, y: i32) -> IndexedPixel {
         let Some(tile) = self.surface.tile(TileCoord::containing(x, y)) else { return IndexedPixel::default() };
         let at = (y.rem_euclid(TILE_SIZE) * TILE_SIZE + x.rem_euclid(TILE_SIZE)) as usize;
