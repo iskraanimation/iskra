@@ -11,6 +11,12 @@ timeline and node graph, and render the shots out one by one or as the whole fil
 The [quick guide](docs/Iskra-Quick-Guide.pdf) shows the app page by page: its panels, tools,
 menus and shortcuts.
 
+## Download
+
+Ready-made apps are on the [releases page](https://github.com/iskraanimation/iskra/releases/latest):
+a universal app for macOS 11 or newer, Apple silicon and Intel. It is not yet signed by Apple:
+the first time, right-click it and choose **Open**.
+
 ## Screenshots
 
 The app has four pages, switched from the bar at the bottom of the window.
