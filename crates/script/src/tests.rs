@@ -526,3 +526,31 @@ fn a_script_writes_lists_and_closes_retake_notes() {
     ok(run_with(&mut s, "iskra.shot.notes.forEach((n) => n.remove()); iskra.shot.notes.length", json!({ "shot": shot }), false));
     assert!(s.project().shots[0].notes.is_empty());
 }
+
+#[test]
+fn a_script_drives_a_wheel_with_the_driver_commands_and_bakes_it() {
+    let mut s = Session::new();
+    crate::install(&mut s);
+    let code = r#"
+        var car = iskra.run("peg.new", { name: "Car-P" }).id;
+        var wheel = iskra.run("peg.new", { name: "Wheel-P", parent: car }).id;
+        iskra.run("peg.setTransform", { peg: car, frame: 0, position: [0, 0], animate: true });
+        iskra.run("peg.setTransform", { peg: car, frame: 10, position: [100, 0], animate: true });
+        var driver = iskra.run("driver.new", {
+            peg: wheel,
+            expressions: "rotation = parent.travelled / radius * 180 / PI",
+            parameters: [{ name: "radius", value: 50 }]
+        }).id;
+        iskra.run("driver.bake", { driver: driver }).frames;
+    "#;
+    let outcome = run(&mut s, code, "wheel.js");
+    assert!(outcome.ok(), "{:?}", outcome.error);
+    assert_eq!(outcome.result, json!(48), "the whole shot is baked");
+    let shot = &s.project().shots[0];
+    assert!(shot.drivers.is_empty());
+    let wheel = shot.pegs.iter().find(|peg| peg.name == "Wheel-P").unwrap();
+    assert!((wheel.transform_at(10).rotation - 2f64.to_degrees()).abs() < 1e-9);
+    // The whole run is one step.
+    s.undo();
+    assert!(s.project().shots[0].pegs.iter().all(|peg| peg.name != "Wheel-P"));
+}

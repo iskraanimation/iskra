@@ -194,10 +194,11 @@ impl Shot {
         Some((composite.inputs.iter().position(|input| *input == Source::Layer(layer) || *input == tip)?, composite.inputs.len()))
     }
 
-    /// The ids of the shot's nodes: its layers, pegs, composites, deformers, groups and effects,
-    /// and its camera.
+    /// The ids of the shot's nodes: its layers, pegs, composites, deformers, groups, effects and
+    /// drivers, and its camera.
     pub fn node_ids(&self) -> impl Iterator<Item = u64> {
         let (layers, pegs) = (self.layers.iter().map(|l| l.id.0), self.pegs.iter().map(|p| p.id.0));
+        let pegs = pegs.chain(self.drivers.iter().map(|d| d.id.0));
         let groups = self.groups.iter().map(|g| g.id.0).chain(self.effects.iter().map(|e| e.id.0)).chain(self.displays.iter().map(|d| d.id.0));
         layers.chain(pegs).chain(self.composites.iter().map(|c| c.id.0)).chain(self.deformers.iter().map(|d| d.id.0)).chain(groups).chain([self.camera.id.0])
     }
@@ -205,6 +206,7 @@ impl Shot {
     /// The names of the shot's nodes, of every kind. No two share one.
     pub fn node_names(&self) -> impl Iterator<Item = &str> + Clone {
         let (layers, pegs) = (self.layers.iter().map(|l| l.name.as_str()), self.pegs.iter().map(|p| p.name.as_str()));
+        let pegs = pegs.chain(self.drivers.iter().map(|d| d.name.as_str()));
         let groups = self.groups.iter().map(|g| g.name.as_str()).chain(self.effects.iter().map(|e| e.name.as_str()));
         let groups = groups.chain(self.displays.iter().map(|d| d.name.as_str()));
         layers.chain(pegs).chain(self.composites.iter().map(|c| c.name.as_str())).chain(self.deformers.iter().map(|d| d.name.as_str())).chain(groups)

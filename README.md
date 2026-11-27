@@ -45,6 +45,8 @@ The app has four pages, switched from the bar at the bottom of the window.
 - A timeline with keyframes, and a node view; no exposure sheet
 - Pegs, motion paths drawn and bent in the viewport, and a function curve editor
 - Deformers, and bones with IK and FK
+- Driver nodes: expressions that move, turn and scale a peg from other pegs on every frame, a
+  wheel rolling as its car goes or a shadow shrinking as a character jumps, with presets
 - Depth for parallax and front-to-back order, with a 3D camera
 - Effects and particles, composited on the GPU
 - Characters imported from layered PSD, OpenRaster and Krita files, every part in place
@@ -58,6 +60,7 @@ The app has four pages, switched from the bar at the bottom of the window.
   animation
 - Shots can be sent out as their own files and brought back; every shot has a status
 - Storyboard pages exported as PDF
+- Retake notes pinned to a shot's frames, ticked off in a panel of their own
 
 **Export**
 - Image sequences: PNG, JPEG, TIFF and OpenEXR, at 8 or 16 bits or 32-bit float a channel

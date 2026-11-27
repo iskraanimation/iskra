@@ -9,8 +9,10 @@ mod clip;
 mod cut;
 mod deform;
 mod display;
+mod driver;
 mod effect;
 mod exposure;
+mod expr;
 mod graph;
 mod group;
 mod guide;
@@ -38,12 +40,14 @@ pub use clip::{CopiedFrame, CopiedKey, KeyClip, KeyOwner};
 pub use cut::NoMerge;
 pub use deform::{Bone, Deformer, DeformerId, Ik, Knot, PIECES, PoseValue, Warp};
 pub use display::{Display, DisplayId, MAIN_DISPLAY};
+pub use driver::{Driver, DriverInput, DriverParameter, DriverPreset, PresetParameter, driver_presets};
 pub use effect::{
     BLEND, BLEND_MODES, COLLIDER, COLOUR_CARD, Curves, DEPTH, Effect, EffectId, EffectKind, MATTE, PARTICLES, PICTURE, PORT_IN, PORT_OUT, Param, ParamKind,
     ParamSpec, Port, PortKind, RECEIVE, SEND, SPLASH_SPRITE, SPRITE, STRAIGHT, STYLE, STYLE_PALETTE, TAG, VISIBLE, Value, effect_kind, effect_kinds,
 };
 pub use effectcraft_time::{FrameRate, format_timecode_frames};
 pub use exposure::{Exposure, Run};
+pub use expr::{Amounts, At as ExprAt, Driven, ExprError, Expressions, Read as DriverRead, Scope as DriverScope, reserved as reserved_in_expressions};
 pub use graph::{Composite, Source, Stacking};
 pub use group::{Group, GroupId, Work};
 pub use guide::{DrawGuide, GuideId, GuideKind, RULER_ARM, Snap};
@@ -97,6 +101,10 @@ id!(
 id!(
     /// A peg's permanent id, unique in the project.
     PegId
+);
+id!(
+    /// A Driver node's permanent id, unique in the project (plan §8.8).
+    DriverId
 );
 id!(
     /// A composite's permanent id, unique in the project.
@@ -766,6 +774,10 @@ pub struct Shot {
     /// through on its way from a layer or a composite to what is seen.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Arc<Effect>>,
+    /// The shot's Driver nodes (plan §8.8), in the order they were made: what adds to its
+    /// pegs' values, worked out on every frame from other pegs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drivers: Vec<Arc<Driver>>,
     /// What the shot's main display shows (see `display`): usually a composite. Nothing is
     /// seen of a shot without one.
     pub display: Option<Source>,
@@ -1043,6 +1055,7 @@ impl Project {
             deformers: Vec::new(),
             groups: Vec::new(),
             effects: Vec::new(),
+            drivers: Vec::new(),
             display: Some(Source::Composite(composite)),
             display_name: MAIN_DISPLAY.to_string(),
             displays: Vec::new(),
@@ -1280,6 +1293,18 @@ impl Shot {
         }
         let displays: HashMap<u64, u64> = self.displays.iter().map(|display| (display.id.0, new_id())).collect();
         renamed.extend(displays.iter().map(|(old, new)| (*old, *new)));
+        // A driver drives the copy of its peg and reads the copies of its inputs; one whose peg
+        // was not copied goes, and an input whose peg was not is empty.
+        self.drivers.retain(|driver| pegs.contains_key(&driver.drives));
+        for driver in &mut self.drivers {
+            let driver = Arc::make_mut(driver);
+            let new = DriverId(new_id());
+            renamed.insert(driver.id.0, new.0);
+            (driver.id, driver.drives) = (new, pegs[&driver.drives]);
+            for input in &mut driver.inputs {
+                input.peg = input.peg.and_then(|peg| pegs.get(&peg).copied());
+            }
+        }
         self.places = self.places.iter().filter_map(|(node, place)| Some((*renamed.get(node)?, *place))).collect();
         self.colours = self.colours.iter().filter_map(|(node, colour)| Some((*renamed.get(node)?, *colour))).collect();
         self.folded = self.folded.iter().filter_map(|peg| pegs.get(peg).copied()).collect();

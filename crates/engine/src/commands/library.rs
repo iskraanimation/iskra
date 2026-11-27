@@ -183,7 +183,7 @@ fn place_copies(p: &mut Project, shot: ShotId, template: &Project, at: Option<[f
 }
 
 fn placed(placed: &iskra_model::Placed) -> Value {
-    json!({ "layers": placed.layers, "pegs": placed.pegs, "composites": placed.composites, "groups": placed.groups, "effects": placed.effects, "displays": placed.displays })
+    json!({ "layers": placed.layers, "pegs": placed.pegs, "composites": placed.composites, "groups": placed.groups, "effects": placed.effects, "displays": placed.displays, "drivers": placed.drivers })
 }
 
 #[derive(Deserialize)]

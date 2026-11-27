@@ -52,6 +52,7 @@ pub struct Placed {
     pub groups: Vec<GroupId>,
     pub effects: Vec<crate::EffectId>,
     pub displays: Vec<crate::DisplayId>,
+    pub drivers: Vec<crate::DriverId>,
 }
 
 impl Shot {
@@ -218,6 +219,18 @@ impl Project {
                 Arc::make_mut(&mut peg).parent = None;
             }
             shot.pegs.push(peg);
+        }
+        // A driver goes with the peg it drives, reading the inputs that came too; a port
+        // wired from a peg that stays behind is empty there.
+        let in_template = |peg: PegId| taken.contains(&Part::Peg(peg));
+        for driver in from.drivers.iter().filter(|driver| in_template(driver.drives)) {
+            let mut driver = driver.clone();
+            if driver.inputs.iter().any(|input| input.peg.is_some_and(|peg| !in_template(peg))) {
+                for input in &mut Arc::make_mut(&mut driver).inputs {
+                    input.peg = input.peg.filter(|peg| in_template(*peg));
+                }
+            }
+            shot.drivers.push(driver);
         }
         // The composite the shot was made with stands for the shot the template goes into:
         // what was connected to something that stays behind is connected to it.
@@ -472,6 +485,13 @@ impl Project {
             made.template = mark.map(str::to_string).or(made.template.take());
             placed.effects.push(effect.id);
             into.effects.push(effect);
+        }
+        for mut driver in copy.drivers {
+            let made = Arc::make_mut(&mut driver);
+            named(&mut made.name);
+            made.template = mark.map(str::to_string).or(made.template.take());
+            placed.drivers.push(driver.id);
+            into.drivers.push(driver);
         }
         // The newest first, as a shot lists its layers, and in the order the template has them.
         for (index, mut layer) in copy.layers.into_iter().enumerate() {

@@ -284,6 +284,9 @@ pub struct Timeline {
     /// Where each effect's row was named, and where each of its keyframes was drawn.
     #[cfg(test)]
     pub effect_names: Vec<(EffectId, Rect)>,
+    /// Where each driver's row was named.
+    #[cfg(test)]
+    pub driver_names: Vec<(iskra_model::DriverId, Rect)>,
     #[cfg(test)]
     pub effect_key_marks: Vec<(EffectId, u32, Rect)>,
     /// Where each key of a value's own row was drawn.
@@ -319,6 +322,8 @@ enum Row {
     /// An effect node that has keyframes (plan §8.3), under the layer whose wire it is on or
     /// whose matte it cuts by (see [`effect_layer`]), or after the other rows if neither.
     Effect(EffectId, Option<LayerId>),
+    /// A Driver node whose parameters have keyframes (plan §8.8), under the peg it drives.
+    Driver(iskra_model::DriverId),
     /// One value of a peg, of a chain of bones or of an effect node, with its own keys: under
     /// the node's row, while the node is opened by its `+`.
     Value(Keyed),
@@ -333,9 +338,10 @@ impl Row {
             Row::Bones(_, layer) => Some(Node::Layer(layer)),
             Row::Group(_) => None,
             Row::Effect(_, layer) => layer.map(Node::Layer),
+            Row::Driver(_) => None,
             Row::Value(Keyed::Peg(peg, _)) => Some(Node::Peg(peg)),
             Row::Value(Keyed::Bones(_, layer, _)) => Some(Node::Layer(layer)),
-            Row::Value(Keyed::Effect(..) | Keyed::Lens(_)) => None,
+            Row::Value(Keyed::Effect(..) | Keyed::Lens(_) | Keyed::Driver(..)) => None,
         }
     }
 
@@ -347,6 +353,7 @@ impl Row {
             Row::Bones(id, _) => id.0,
             Row::Group(id) => id.0,
             Row::Effect(id, _) => id.0,
+            Row::Driver(id) => id.0,
             Row::Value(of) => of.id(),
         }
     }
@@ -448,6 +455,11 @@ fn rows(shot: &Shot, hide_boards: bool, opened: &BTreeSet<u64>) -> Vec<(Row, usi
         let layer = match node {
             Node::Peg(peg) => {
                 values(&mut listed, Keyed::Peg(peg, None), depth);
+                // Its driver, where the driver's parameters have keys.
+                if let Some(driver) = shot.driver_of(peg).filter(|driver| driver.parameters.iter().any(|parameter| !parameter.track.is_empty())) {
+                    listed.push((Row::Driver(driver.id), depth + 1));
+                    values(&mut listed, Keyed::Driver(driver.id, None), depth + 1);
+                }
                 if lens.is_some() && shot.camera.parent == Some(peg) {
                     listed.extend(lens.take().map(|lens| (lens, depth + 1)));
                 }
@@ -611,6 +623,41 @@ pub(crate) enum Keyed {
     Effect(EffectId, Option<&'static str>),
     /// The lens of a shot's camera: its zoom and its field of view, keyed together.
     Lens(ShotId),
+    /// A Driver node's parameters, keyed together (plan §8.8), or the one named.
+    Driver(iskra_model::DriverId, Option<Word>),
+}
+
+/// A driver's parameter's name, held as a timeline row's value is: in place, so that it is
+/// copied as the row is. The commands keep such names to [`Word::MOST`] bytes.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Word([u8; Word::MOST], u8);
+
+impl Word {
+    pub(crate) const MOST: usize = 32;
+
+    /// `name`, if it is short enough to be held.
+    pub(crate) fn of(name: &str) -> Option<Word> {
+        let bytes = name.as_bytes();
+        let mut held = [0; Word::MOST];
+        held.get_mut(..bytes.len())?.copy_from_slice(bytes);
+        Some(Word(held, bytes.len() as u8))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0[..usize::from(self.1)]).unwrap_or_default()
+    }
+}
+
+impl std::fmt::Debug for Word {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+/// The tracks of a driver's parameters that `word` names: the one, or all of them.
+fn driver_tracks(shot: &Shot, driver: iskra_model::DriverId, word: Option<Word>) -> Vec<&iskra_model::Track<f64>> {
+    let Some(driver) = shot.driver(driver) else { return Vec::new() };
+    driver.parameters.iter().filter(|parameter| word.is_none_or(|word| word.as_str() == parameter.name)).map(|parameter| &parameter.track).collect()
 }
 
 impl Keyed {
@@ -621,6 +668,7 @@ impl Keyed {
             Keyed::Bones(..) => "deformer",
             Keyed::Effect(..) => "effect",
             Keyed::Lens(_) => "camera",
+            Keyed::Driver(..) => "driver",
         }
     }
 
@@ -632,6 +680,7 @@ impl Keyed {
             Keyed::Effect(effect, param) => json!({ "effect": effect.0, "param": param }),
             // The lens alone: the peg that moves the camera has its own row.
             Keyed::Lens(shot) => json!({ "shot": shot.0, "lensOnly": true }),
+            Keyed::Driver(driver, word) => json!({ "driver": driver.0, "parameter": word.map(|word| word.as_str().to_string()) }),
         };
         if let (Some(params), Value::Object(more)) = (params.as_object_mut(), more) {
             params.extend(more);
@@ -655,6 +704,7 @@ impl Keyed {
                 PoseValue::Goal => "ik.goal".to_string(),
             }),
             Keyed::Effect(_, param) => param.map(str::to_string),
+            Keyed::Driver(_, word) => word.map(|word| word.as_str().to_string()),
             Keyed::Lens(_) => None,
         }
     }
@@ -666,6 +716,7 @@ impl Keyed {
             Keyed::Bones(bones, ..) => bones.0,
             Keyed::Effect(effect, _) => effect.0,
             Keyed::Lens(shot) => shot.0,
+            Keyed::Driver(driver, _) => driver.0,
         }
     }
 
@@ -676,6 +727,10 @@ impl Keyed {
             Keyed::Bones(bones, _, value) => shot.deformer(bones).map(|bones| bones.key_frames_of(value).into_iter().collect()),
             Keyed::Effect(effect, param) => shot.effect(effect).map(|effect| effect.key_frames(param).into_iter().collect()),
             Keyed::Lens(_) => Some(shot.camera.animation.frames().into_iter().collect()),
+            Keyed::Driver(driver, word) => {
+                let frames: BTreeSet<u32> = driver_tracks(shot, driver, word).into_iter().flat_map(|track| track.keys().iter().map(|key| key.frame)).collect();
+                Some(frames.into_iter().collect())
+            }
         }
         .unwrap_or_default()
     }
@@ -689,6 +744,10 @@ impl Keyed {
                 let lens = &shot.camera.animation;
                 lens.zoom.key(frame).or(lens.distance.key(frame)).map(|key| (key.into, key.out))
             }
+            Keyed::Driver(driver, word) => {
+                let key = driver_tracks(shot, driver, word).into_iter().find_map(|track| track.keys().iter().find(|key| key.frame == frame).cloned())?;
+                Some((key.into, key.out))
+            }
         }
     }
 
@@ -698,6 +757,7 @@ impl Keyed {
             Keyed::Bones(bones, _, value) => shot.deformer(bones).is_some_and(|bones| bones.moves_after_of(frame, value)),
             Keyed::Effect(effect, param) => shot.effect(effect).is_some_and(|effect| effect.moves_after_of(frame, param)),
             Keyed::Lens(_) => shot.camera.animation.zoom.moves_after(frame) || shot.camera.animation.distance.moves_after(frame),
+            Keyed::Driver(driver, word) => driver_tracks(shot, driver, word).into_iter().any(|track| track.moves_after(frame)),
         }
     }
 
@@ -709,6 +769,7 @@ impl Keyed {
             Keyed::Bones(bones, ..) => iskra_model::KeyOwner::Deformer(bones),
             Keyed::Effect(effect, _) => iskra_model::KeyOwner::Effect(effect),
             Keyed::Lens(shot) => iskra_model::KeyOwner::Camera(shot),
+            Keyed::Driver(driver, _) => iskra_model::KeyOwner::Driver(driver),
         };
         let values = match self {
             Keyed::Lens(_) => Some(vec!["zoom".to_string(), "distance".to_string()]),
@@ -766,6 +827,7 @@ impl Keyed {
                 Some(title.unwrap_or(param).to_string())
             }
             Keyed::Lens(_) => Some("Lens".to_string()),
+            Keyed::Driver(_, Some(word)) => Some(word.as_str().to_string()),
             _ => None,
         }
     }
@@ -797,6 +859,11 @@ fn values_of(shot: &Shot, of: Keyed) -> Vec<Keyed> {
                 matches!(param.kind, iskra_model::ParamKind::Number { .. }) || effect.params.get(param.id).is_some_and(|held| !held.keys.is_empty())
             };
             kind.params.iter().filter(|param| keyed(param)).map(|param| Keyed::Effect(id, Some(param.id))).collect()
+        }
+        // A driver's parameters, each by its name.
+        Keyed::Driver(id, _) => {
+            let names = shot.driver(id).into_iter().flat_map(|driver| &driver.parameters).filter_map(|parameter| Word::of(&parameter.name));
+            names.map(|word| Keyed::Driver(id, Some(word))).collect()
         }
         Keyed::Lens(_) => Vec::new(),
     }
@@ -1054,6 +1121,7 @@ impl Timeline {
             self.bone_names.clear();
             self.group_names.clear();
             self.effect_names.clear();
+            self.driver_names.clear();
             self.peg_arrows.clear();
             self.openers.clear();
             self.value_names.clear();
@@ -1081,6 +1149,12 @@ impl Timeline {
                     Row::Effect(effect, _) => {
                         let rect = self.opener(ui, rect, effect.0);
                         self.effect_name(ui, shot, rect, depth, effect, picked, frame, actions);
+                        continue;
+                    }
+                    Row::Driver(driver) => {
+                        // Its parameters open under it by the `+` before its name.
+                        let rect = self.opener(ui, rect, driver.0);
+                        self.driver_name(ui, shot, rect, depth, driver, picked, frame, actions);
                         continue;
                     }
                     Row::Value(of) => {
@@ -1470,7 +1544,8 @@ impl Timeline {
             row.and_then(|row| rows.get(row as usize)).map(|(row, _)| *row)
         };
         let pressed_on = ui.input(|i| i.pointer.press_origin()).and_then(row_at);
-        let boxing = response.dragged() && matches!(pressed_on, Some(Row::Node(Node::Peg(_)) | Row::Bones(..) | Row::Effect(..) | Row::Value(_)));
+        let boxing =
+            response.dragged() && matches!(pressed_on, Some(Row::Node(Node::Peg(_)) | Row::Bones(..) | Row::Effect(..) | Row::Driver(_) | Row::Value(_)));
         if let (true, Some(from), Some(to)) = (boxing, ui.input(|i| i.pointer.press_origin()), response.interact_pointer_pos()) {
             self.key_marquee = Some((from, to));
             // The press still selects the row it lands on; the playhead stays.
@@ -1645,6 +1720,10 @@ impl Timeline {
                 }
                 Row::Effect(effect, _) => {
                     self.keys(ui, &painter, &response, shot, Keyed::Effect(effect, None), lane, actions);
+                    None
+                }
+                Row::Driver(driver) => {
+                    self.keys(ui, &painter, &response, shot, Keyed::Driver(driver, None), lane, actions);
                     None
                 }
                 Row::Bones(bones, layer) => {
@@ -2149,6 +2228,50 @@ impl Timeline {
 
     /// The name of an effect node on its row. A click picks the node, so that Properties
     /// shows it; a right-click keys its numbers on the frame, switches it, or deletes it.
+    /// A driver's row: its name, which picks it, so that Properties shows it, and a menu that
+    /// keys its parameters on the frame that is showing or takes their keys away there.
+    fn driver_name(
+        &mut self,
+        ui: &mut egui::Ui,
+        shot: &Shot,
+        rect: Rect,
+        depth: usize,
+        id: iskra_model::DriverId,
+        picked: &BTreeSet<u64>,
+        frame: u32,
+        actions: &mut Vec<Action>,
+    ) {
+        let Some(driver) = shot.driver(id) else { return };
+        let muted = Theme::of(ui.ctx()).text_muted;
+        let mut inside = rect.shrink2(vec2(4.0, 1.0));
+        inside.min.x += INDENT * depth as f32;
+        let mut row = ui.new_child(egui::UiBuilder::new().max_rect(inside).layout(Layout::left_to_right(Align::Center)));
+        row.set_clip_rect(inside.intersect(ui.clip_rect()));
+        row.add_space(12.0);
+        row.label(egui::RichText::new("ƒ").color(muted));
+        row.add_space(3.0);
+        let written = if driver.off { egui::RichText::new(&driver.name).color(muted) } else { egui::RichText::new(&driver.name) };
+        let hint = "A Driver node, with the keyframes of its parameters. They are in Properties when it is picked";
+        let label = row.selectable_label(picked.contains(&id.0), written).on_hover_text(hint);
+        #[cfg(test)]
+        self.driver_names.push((id, label.rect));
+        if label.clicked() {
+            actions.push(Action::Pick(vec![id.0]));
+        }
+        label.context_menu(|ui| {
+            let keyed = Keyed::Driver(id, None).frames(shot).contains(&frame);
+            let (title, command) = if keyed { ("Remove Keyframe", "driver.removeKey") } else { ("Add Keyframe", "driver.setKey") };
+            if ui.button(title).on_hover_text("Of its parameters, on the frame that is showing").clicked() {
+                actions.push(Action::Run(command, json!({ "driver": id.0, "frame": frame })));
+                ui.close();
+            }
+            if ui.button(if driver.off { "Switch On" } else { "Switch Off" }).clicked() {
+                actions.push(Action::Run("driver.setEnabled", json!({ "driver": id.0, "enabled": driver.off })));
+                ui.close();
+            }
+        });
+    }
+
     fn effect_name(
         &mut self,
         ui: &mut egui::Ui,
@@ -2230,6 +2353,7 @@ impl Timeline {
         if label.clicked() {
             match of {
                 Keyed::Effect(effect, _) => actions.push(Action::Pick(vec![effect.0])),
+                Keyed::Driver(driver, _) => actions.push(Action::Pick(vec![driver.0])),
                 _ => actions.push(Action::Select { node: Row::Value(of).node(), frame }),
             }
         }
@@ -2242,6 +2366,8 @@ impl Timeline {
                 (true, Keyed::Bones(..)) => ("Remove Keyframe", "deformer.removeKey"),
                 (true, Keyed::Effect(..)) => ("Remove Keyframe", "effect.removeKey"),
                 (true, Keyed::Lens(_)) => ("Remove Keyframe", "camera.removeKey"),
+                (true, Keyed::Driver(..)) => ("Remove Keyframe", "driver.removeKey"),
+                (false, Keyed::Driver(..)) => ("Add Keyframe", "driver.setKey"),
                 (false, Keyed::Lens(_)) => ("Add Keyframe", "camera.setKey"),
                 (false, Keyed::Peg(..)) => ("Add Keyframe", "peg.setKey"),
                 (false, Keyed::Bones(..)) => ("Add Keyframe of the Pose", "deformer.setKey"),
@@ -2337,7 +2463,7 @@ impl Timeline {
         let node = match of {
             Keyed::Peg(peg, _) => Some(Node::Peg(peg)),
             Keyed::Bones(_, layer, _) => Some(Node::Layer(layer)),
-            Keyed::Effect(..) | Keyed::Lens(_) => None,
+            Keyed::Effect(..) | Keyed::Lens(_) | Keyed::Driver(..) => None,
         };
         let eases = |frame| of.eases(shot, frame);
         let moves = |frame| of.moves_after(shot, frame);
@@ -2379,6 +2505,9 @@ impl Timeline {
                 if let Keyed::Effect(effect, _) = of {
                     actions.push(Action::Pick(vec![effect.0]));
                 }
+                if let Keyed::Driver(driver, _) = of {
+                    actions.push(Action::Pick(vec![driver.0]));
+                }
             }
             if grip.drag_started() {
                 self.key_drag = Some(KeyDrag { of, from: frame, to: frame });
@@ -2410,6 +2539,7 @@ impl Timeline {
                         Keyed::Bones(..) => "deformer.moveKey",
                         Keyed::Effect(..) => "effect.moveKey",
                         Keyed::Lens(_) => "camera.moveKey",
+                        Keyed::Driver(..) => "driver.moveKey",
                     };
                     actions.push(Action::Run(move_key, of.params(json!({ "from": drag.from, "to": drag.to }))));
                     self.picked_keys = vec![(of, drag.to)];
@@ -2423,6 +2553,7 @@ impl Timeline {
                 Keyed::Bones(..) => ("deformer.setEase", "deformer.removeKey"),
                 Keyed::Effect(..) => ("effect.setEase", "effect.removeKey"),
                 Keyed::Lens(_) => ("camera.setEase", "camera.removeKey"),
+                Keyed::Driver(..) => ("driver.setEase", "driver.removeKey"),
             };
             grip.context_menu(|ui| {
                 for (title, to_into, to_out) in EASES {

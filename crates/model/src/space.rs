@@ -157,7 +157,7 @@ impl Projection {
 impl Shot {
     /// Whether, on `frame`, a peg from `parent` up tilts what is parented to `parent`.
     pub fn tilted(&self, parent: Option<PegId>, frame: u32) -> bool {
-        self.ancestors(parent).any(|peg| peg.transform_at(frame).tilts())
+        self.ancestors(parent).any(|peg| self.pose(peg, frame).tilts())
     }
 
     /// What the pegs from `parent` up do, on `frame`, to what is parented to `parent`, in
@@ -177,7 +177,7 @@ impl Shot {
                     over_parent.mul(&Space::flat(&flat, own.offset[2]))
                 }
             };
-            parent = (above, peg.transform_at(frame).space());
+            parent = (above, self.pose(peg, frame).space());
         }
         parent.0.mul(&parent.1)
     }

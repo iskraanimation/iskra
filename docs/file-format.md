@@ -4,7 +4,7 @@ An Iskra project (`.iskra`) is one [SQLite](https://sqlite.org) database, so its
 read with any SQLite tool even without Iskra. A library template (`.iskratpl`) is such a file
 too: see [Library templates](#library-templates).
 
-This document describes **format version 53**. Files of versions 1 to 52 are still opened: see
+This document describes **format version 63**. Files of versions 1 to 62 are still opened: see
 [Earlier versions](#earlier-versions).
 
 ```
@@ -26,7 +26,7 @@ reads what is still readable and lists what it had to skip. It never writes to t
 | Pragma | Value | Meaning |
 |---|---|---|
 | `application_id` | `0x49534B52` ("ISKR") | The file is an Iskra project |
-| `user_version` | `53` | The format version. Iskra refuses files with a higher version than it knows |
+| `user_version` | `63` | The format version. Iskra refuses files with a higher version than it knows |
 
 ## Tables
 
@@ -71,6 +71,13 @@ below where it is not nothing, false or zero.
   have `drift`, `[hue, saturation, value]`: how far a vector stroke's colour drifts from it at
   most, its hue turned by so many degrees (-180 to 180) and its saturation and value moved by
   so many hundredths (-100 to 100), added to its colour in HSV.
+- A swatch's `kind` is `solid` (if left out), `gradient` or `texture`. A gradient has its stops
+  and its shape, linear or radial; a texture has a picture. A style can give a swatch another
+  kind as well as another colour. Where a drawing's filled area is painted with such a swatch,
+  the drawing's `placements` say where the gradient or the picture lies in that area: across
+  it, skewed (`across`), with a radial gradient's focal point off its middle (`focus`), and a
+  picture tiled, drawn out at its edges, or shown `once`. An area with no placement has its
+  gradient fitted to it.
 - No new swatch gets an id below `nextSwatch`, so the id of a removed swatch, which drawings
   may still be painted with, is not given again.
 - `sets` are the named palettes, in the order they are listed, each `{ "id", "name" }`; there is
@@ -116,8 +123,8 @@ below where it is not nothing, false or zero.
   [Shots sent out](#shots-sent-out)); its `outTo` is who has it, if that was said.
 - A shot's `scene` and `sequence` are names it is given to organise the shots by; a shot
   without one is in none. They hold nothing the shots of a scene or a sequence share.
-- A shot's nodes are its `layers`, `pegs`, `composites`, `deformers`, `effects`, `groups` and
-  `displays`, each list in the order they were made; that order means nothing to the picture.
+- A shot's nodes are its `layers`, `pegs`, `composites`, `deformers`, `effects`, `groups`,
+  `displays` and `drivers`, each list in the order they were made; that order means nothing to the picture.
   No two of a shot's nodes share a name.
 - `revision` is a number that is another after every change to what the shot looks like (see
   [Renders](#renders)).
@@ -142,7 +149,12 @@ below where it is not nothing, false or zero.
   pegs and groups whose rows are hidden, and `unlocked` the board layers opened to be drawn on
   on the Animation page, where boards are otherwise locked. Ids of deleted nodes may stay in
   these lists and name nothing. A hidden layer is not in what the shot shows, nor is one that
-  a hidden peg carries or that is in a hidden group.
+  a hidden peg carries or that is in a hidden group. `locked` lists the layers, pegs and groups
+  whose rows are locked: what they hold is not drawn on nor picked in the viewport, and is
+  shown and rendered as ever.
+- `notes` are the shot's retake notes, in frame order, each `{ "id", "frame", "length", "text",
+  "author", "written", "done" }`: a note on `length` frames from `frame`, who wrote it, when
+  (seconds since the start of 1970, UTC), and whether it has been seen to.
 
 #### Layers and drawings
 
@@ -173,6 +185,10 @@ below where it is not nothing, false or zero.
   how their files keep their colours with it: `straight` (if left out),
   `premultipliedBlack` or `premultipliedWhite`.
 - A layer's `deformer` is the deformer of the shot that bends its drawings, if one does.
+- A layer with `"text": true` is a text layer: its drawings' `texts` are boxes of text, each
+  with its words, its font, size and alignment, and where it lies, which Iskra lays out into
+  the drawing's vector fills. A layer without it is a drawing layer, and a drawing without
+  `texts` holds no text.
 
 #### Pegs
 
@@ -215,6 +231,9 @@ below where it is not nothing, false or zero.
   the speed along it changes. A chart's points are usually one for each frame between the
   keys, but need not be: a key moved keeps its chart, stretched to the new time. Out of a
   `hold` the chart is not used.
+- A key may end a `cycle`, `{ "from", "kind" }`: the frames from `from` up to the key are
+  repeated after it, from the start again each time (`loop`) or back and forth (`pingPong`),
+  until the next key.
 - A value with keys is what they make it on each frame: the first key's value before it, the
   last key's after it, and that value of `transform` is then not used. A value with no keys
   is the one in `transform` on every frame. Every other keyed value in the file (a lens, a
@@ -260,6 +279,36 @@ A deformer bends the drawings of the layers given to it. It is `{ "id", "name", 
   line follows it wholly, less beyond, and not at all from `fade`; both at 0 have no limit. A
   knot's `bend` gives the line's handles through it at rest, as a position key's does, and
   `bent` moves them (keys `bendsInto` and `bendsOut`, on the same frames).
+- A chain may have `ik`, `{ "on", "ons", "point", "goal", "goals", "peg" }`: switched on (keys
+  `ons`, each held to the next), the chain is posed so that its joint `point` (its end if left
+  out) reaches `goal` (keys `goals`), or the pivot of the peg `peg` where one is wired in.
+- `startPeg` is a peg wired into a chain's or a curve's start port: it carries the start, as
+  the body carries a limb, from where it was when it was wired in (`startBind`, the peg's
+  transform then). `endPeg` is a peg wired into a curve's end port, which its last point goes
+  to; a chain's end port is its IK goal's `peg`.
+
+#### Drivers
+
+A Driver works out, on every frame, amounts that are added to the values of one peg, from
+other pegs, numbers of its own and the frame. It is `{ "id", "name", "drives", "inputs",
+"expressions", "preset", "parameters", "off", "template" }`.
+
+- `drives` is the peg it adds to. A peg has one driver at most.
+- `inputs` are the pegs it reads, each `{ "name", "peg" }`: the expressions call it by its
+  `name`, and `peg` is the peg wired in, or left out for none.
+- `expressions` is text, lines such as `rotation = parent.travelled / radius * 180 / PI`, one
+  a line or split by `;`: each gives an amount for `x`, `y`, `rotation`, `scaleX`, `scaleY`,
+  `skew` or `depth`, or names a number with `let`. They read the inputs' values (`car.x`), where
+  they are in the scene (`car.world.x`, `.y`, `.rotation`, `.scale`) and how far they have gone
+  (`car.travelled`), the driven peg's own values (`own.x`), its parent (`parent`, the scene
+  itself for a peg with none), the parameters by name and the `frame` (from 1). Text that does
+  not parse is kept as it is and adds nothing.
+- `parameters` are its numbers, each `{ "name", "value", "track" }`, where `track` holds keys
+  of the form a peg's have; one with keys is what they make it on each frame.
+- `preset` is the name of the preset its expressions were taken from, if they were, and with
+  `"off": true` it adds nothing. What a driven peg is on a frame is its own value, keyed or
+  still, with the driver's amount added; a value the expressions give no number for on a frame
+  is the peg's own there.
 
 #### Composites, displays and effects
 
@@ -290,11 +339,11 @@ layer (`colourArt`, `lineArt`, `overart`), which gives that art layer alone.
   A parameter with no entry is as its kind starts it. Switched off (`"enabled": false`) an
   effect lets its picture through unchanged. A port or a Send whose `parent` names a peg
   carries that peg's transform: what is parented to the effect's id is carried by that peg.
-- A group is `{ "id", "name", "members", "folded", "board" }`: `members` are ids of the shot's
-  nodes, each node in one group at most; deleted ones may stay. Folded, it is shown as one box
-  and one row. A `board` group is the storyboard's: everything in it is a board, whatever its
+- A group is `{ "id", "name", "members", "folded", "rowsFolded", "board" }`: `members` are ids
+  of the shot's nodes, each node in one group at most; deleted ones may stay. `folded`, it is
+  shown as one box in the node view; `rowsFolded`, as one row on the timeline. A `board` group is the storyboard's: everything in it is a board, whatever its
   layers say.
-- A layer, peg, composite, effect or group that is a copy from a library template has the
+- A layer, peg, composite, effect, group or driver that is a copy from a library template has the
   template's name as its `template`. It is a note for the user and nothing follows from it.
 
 #### The camera
@@ -501,9 +550,22 @@ the art layers whose shapes changed.
 
 A file of an earlier version is converted as it is read. The file itself is rewritten in the
 current version by the next save, which first keeps the old file as `MyFilm (format 1).iskra`
-(or `2` to `52`) beside it. Where a version below lacks something, that is left out, and reads
+(or `2` to `62`) beside it. Where a version below lacks something, that is left out, and reads
 as its default, unless more is said.
 
+- **Version 62** had no `drivers` on shots.
+- **Version 61** had no `notes` on shots.
+- **Version 60** had no `cycle` on keys.
+- **Version 59** had no `across`, `focus` or `once` on placements: a placement is square to
+  its line, its focus in the middle, and a picture tiled or drawn out as `tile` says.
+- **Version 58** had no gradient or texture swatches: no `kind` on swatches or styles, and no
+  `placements` on drawings.
+- **Version 57** had no text layers: no `text` on layers and no `texts` on drawings.
+- **Version 56** had no `startPeg`, `startBind` or `endPeg` on deformers.
+- **Version 55** had no `ik` on chains.
+- **Version 54** had no `locked` on shots: every row is unlocked.
+- **Version 53** had no `rowsFolded` on groups: a group folded in the node view is folded on
+  the timeline too, as it is read.
 - **Version 52** had no `scene` nor `sequence` on shots.
 - **Version 51** had no `chart` on keys: every way between two keys is timed by their eases.
 - **Version 50** kept the list of skins on the project, as `skins` beside `palette`; it is

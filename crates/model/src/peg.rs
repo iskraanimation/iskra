@@ -447,7 +447,7 @@ impl Shot {
         let mut parent = (Affine::IDENTITY, Affine::IDENTITY);
         for peg in pegs.into_iter().rev() {
             let above = if carried || Some(peg.id) != first { self.inherited(peg, parent, frame) } else { self.inherited_still(peg, parent, frame) };
-            parent = (above, peg.transform_at(frame).matrix());
+            parent = (above, self.pose(peg, frame).matrix());
         }
         parent.0.mul(&parent.1)
     }
@@ -489,7 +489,7 @@ impl Shot {
     /// world, carried by the bones it follows, less what it does not inherit.
     pub fn above(&self, peg: &Peg, frame: u32) -> Affine {
         let parent =
-            self.peg_above(peg.parent).map_or((Affine::IDENTITY, Affine::IDENTITY), |parent| (self.above(parent, frame), parent.transform_at(frame).matrix()));
+            self.peg_above(peg.parent).map_or((Affine::IDENTITY, Affine::IDENTITY), |parent| (self.above(parent, frame), self.pose(parent, frame).matrix()));
         self.inherited(peg, parent, frame)
     }
 
@@ -516,7 +516,7 @@ impl Shot {
         if peg.inherit.is_all() {
             return over_parent.mul(&parent);
         }
-        let pose = peg.transform_at(frame);
+        let pose = self.pose(peg, frame);
         over_parent.mul(&peg.inherit.apply(parent, [pose.position[0] + pose.pivot[0], pose.position[1] + pose.pivot[1]]))
     }
 
@@ -532,7 +532,7 @@ impl Shot {
             Some([at.x, at.y])
         });
         followed.unwrap_or_else(|| {
-            let pose = peg.transform_at(frame);
+            let pose = self.pose(peg, frame);
             [pose.position[0] + pose.pivot[0], pose.position[1] + pose.pivot[1]]
         })
     }
@@ -540,7 +540,7 @@ impl Shot {
     /// The same, leaving out what pegs that follow a deformer are carried by: how a
     /// deformer's space is found, which no follow can then go round in a circle through.
     fn unfollowed(&self, parent: Option<PegId>, frame: u32) -> Affine {
-        self.ancestors(parent).fold(Affine::IDENTITY, |below, peg| peg.transform_at(frame).matrix().mul(&below))
+        self.ancestors(parent).fold(Affine::IDENTITY, |below, peg| self.pose(peg, frame).matrix().mul(&below))
     }
 
     /// How the point a peg follows is carried on `frame`, from its rest to its pose, in the
@@ -569,7 +569,7 @@ impl Shot {
     /// How near the viewer the pegs from `parent` up put, on `frame`, what is parented to
     /// `parent`: their depths, added up.
     pub fn depth(&self, parent: Option<PegId>, frame: u32) -> f64 {
-        self.ancestors(parent).map(|peg| peg.transform_at(frame).depth).sum()
+        self.ancestors(parent).map(|peg| self.pose(peg, frame).depth).sum()
     }
 
     /// The timeline's rows: every peg and layer with how deep it is nested, each peg followed

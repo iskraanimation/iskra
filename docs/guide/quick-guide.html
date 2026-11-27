@@ -181,14 +181,15 @@ table.keys tr.head td { padding-top: 10px; }
     <div><span class="c">12</span>Onion skin and drawing substitution</div>
     <div><span class="c">13</span>The node view and effects</div>
     <div><span class="c">14</span>Rigs, characters and the library</div>
-    <div><span class="c">15</span>The camera and depth</div>
-    <div><span class="c">16</span>The Export page</div>
-    <div><span class="c">17</span>Make it yours: panels, keys, scripts</div>
-    <div><span class="c">18</span>Keyboard shortcuts</div>
-    <div><span class="c">19</span>Good to know</div>
+    <div><span class="c">15</span>Drivers: pegs moved by expressions</div>
+    <div><span class="c">16</span>The camera and depth</div>
+    <div><span class="c">17</span>The Export page</div>
+    <div><span class="c">18</span>Make it yours: panels, keys, scripts</div>
+    <div><span class="c">19</span>Keyboard shortcuts</div>
+    <div><span class="c">20</span>Good to know</div>
   </div>
   <div class="note"><b>How to read this guide:</b> the dark pictures show parts of the app. Yellow numbers point to things; the list under each picture says what they do. Hover over any button in the app to see what it does and its shortcut.</div>
-  <div class="note"><b>Keys:</b> <kbd>Cmd</kbd> is the Command key on macOS and <kbd>Ctrl</kbd> on Windows and Linux; <kbd>Alt</kbd> is Option on a Mac. The shortcuts are those of the starting keymap, which follows Harmony's layout; Animate and TVPaint layouts are in Settings (see 17).</div>
+  <div class="note"><b>Keys:</b> <kbd>Cmd</kbd> is the Command key on macOS and <kbd>Ctrl</kbd> on Windows and Linux; <kbd>Alt</kbd> is Option on a Mac. The shortcuts are those of the starting keymap, which follows Harmony's layout; Animate and TVPaint layouts are in Settings (see 18).</div>
 </section>
 
 <!-- ───────────────────────────── 1 Start ───────────────────────────── -->
@@ -251,7 +252,7 @@ table.keys tr.head td { padding-top: 10px; }
 <!-- ───────────────────────────── 2 Main window ───────────────────────────── -->
 <section class="page">
   <h1><span class="n">2</span>The main window</h1>
-  <p class="lead">This is the Animation page. Every page is made of panels: they can be moved, tabbed together, resized and pulled out into a window of their own (see 17).</p>
+  <p class="lead">This is the Animation page. Every page is made of panels: they can be moved, tabbed together, resized and pulled out into a window of their own (see 18).</p>
 
   <div class="mock" style="height:480px; padding:0">
     <!-- menus -->
@@ -393,8 +394,8 @@ table.keys tr.head td { padding-top: 10px; }
   <div class="cols" style="margin-top:22px; gap:18px 36px">
     <div><h2>Media</h2><p>What the project holds: its bins of storyboards, shots, pictures and sound, each shot's status, and the files on disk. Shots are sent out to animators and brought back here (see 4).</p></div>
     <div><h2>Storyboard</h2><p>The film as a timeline of shots, with the sound under them. Draw the boards, time the shots, play the animatic (see 5).</p></div>
-    <div><h2>Animation</h2><p>One shot: its layers, drawings, keys, pegs, rigs and effects, on its own timeline and node view (see 10–15).</p></div>
-    <div><h2>Export</h2><p>Render settings, a viewer, and the render queue, which knows which shots have changed since they were last rendered (see 16).</p></div>
+    <div><h2>Animation</h2><p>One shot: its layers, drawings, keys, pegs, rigs and effects, on its own timeline and node view (see 10–16).</p></div>
+    <div><h2>Export</h2><p>Render settings, a viewer, and the render queue, which knows which shots have changed since they were last rendered (see 17).</p></div>
   </div>
 
   <h2 style="margin-top:28px">How the work flows</h2>
@@ -567,7 +568,7 @@ table.keys tr.head td { padding-top: 10px; }
     <tr><td><svg class="ic"><use href="#i-spline-pointer"/></svg> &nbsp;<b>Point Editor</b> <kbd>Alt+Q</kbd></td><td>On vector art: click a shape to see its points, drag them and their handles; click its line to add a point.</td></tr>
     <tr><td><svg class="ic"><use href="#i-text"/></svg> &nbsp;<b>Text</b> <kbd>Alt+Y</kbd></td><td>On a text layer: click to type, or drag a box whose lines wrap. The <b>Text</b> panel sets the font, size and colour.</td></tr>
     <tr><td><svg class="ic"><use href="#i-zoom"/></svg> &nbsp;<b>Zoom</b> <kbd>Alt+Z</kbd></td><td>Drag right or down to zoom in, left or up out; click for a step in, <kbd>Alt</kbd>-click out; <kbd>Shift</kbd>-drag a box to fill the view with it.</td></tr>
-    <tr><td><svg class="ic"><use href="#i-camera"/></svg> &nbsp;<b>Camera</b></td><td>Drag to pan the shot's camera, drag its round handle to roll it; its zoom and keys are in Tool Properties (see 15).</td></tr>
+    <tr><td><svg class="ic"><use href="#i-camera"/></svg> &nbsp;<b>Camera</b></td><td>Drag to pan the shot's camera, drag its round handle to roll it; its zoom and keys are in Tool Properties (see 16).</td></tr>
     <tr><td><svg class="ic"><use href="#i-bones"/></svg> &nbsp;<b>Bones</b> <kbd>Alt+J</kbd></td><td>Lay a chain of bones on the layer's drawing and edit it at rest; the Transform tool poses it (see 14).</td></tr>
     <tr><td><svg class="ic"><use href="#i-move"/></svg> &nbsp;<b>Transform</b> <kbd>Shift+T</kbd></td><td>Drag to move the peg with what it carries, drag its round handle to turn it (see 11).</td></tr>
   </table>
@@ -983,9 +984,59 @@ table.keys tr.head td { padding-top: 10px; }
   <div class="foot"><span>Iskra · Quick guide</span><span>16</span></div>
 </section>
 
-<!-- ───────────────────────────── 15 Camera ───────────────────────────── -->
+<!-- ───────────────────────────── 15 Drivers ───────────────────────────── -->
 <section class="page">
-  <h1><span class="n">15</span>The camera and depth</h1>
+  <h1><span class="n">15</span>Drivers: pegs moved by expressions</h1>
+  <p class="lead">A Driver adds to a peg's position, rotation and scale on every frame, worked out from other pegs: a wheel that rolls as its car goes, a shadow that shrinks as a character jumps. The peg can still be keyed by hand; the driver adds to its keys.</p>
+  <div class="mock" style="height:250px; padding:0">
+    <svg viewBox="0 0 650 240" style="position:absolute; left:0; top:0; width:100%; height:100%">
+      <g font-size="10" fill="#d7d9dd" font-family="Inter">
+        <rect x="150" y="30" width="96" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="198" y="45" text-anchor="middle">Car-P</text>
+        <rect x="150" y="110" width="96" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="198" y="125" text-anchor="middle">Wheel-P</text>
+        <rect x="30" y="80" width="96" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="78" y="95" text-anchor="middle">Roll</text>
+        <rect x="150" y="190" width="96" height="22" rx="4" fill="#2b2c31" stroke="#5aa0d8"/><text x="198" y="205" text-anchor="middle">Wheel</text>
+        <path d="M198 52 V110 M198 132 V190" stroke="#6fbf73" fill="none" stroke-width="1.2"/>
+        <path d="M78 102 C78 121 120 121 150 121" stroke="#6fbf73" fill="none" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <rect x="400" y="30" width="96" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="448" y="45" text-anchor="middle">Char-P</text>
+        <rect x="520" y="110" width="96" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="568" y="125" text-anchor="middle">Shadow-P</text>
+        <rect x="400" y="110" width="96" height="22" rx="4" fill="#2b2c31" stroke="#6fbf73"/><text x="440" y="125" text-anchor="middle">Shadow</text><text x="488" y="124" fill="#e0573d" font-weight="700">!</text>
+        <path d="M448 52 V110" stroke="#6fbf73" fill="none" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <path d="M448 132 C448 150 500 121 520 121" stroke="#6fbf73" fill="none" stroke-width="1.4" stroke-dasharray="5 4"/>
+      </g>
+    </svg>
+    <span class="c" style="left:20px; top:62px">1</span>
+    <span class="c" style="left:118px; top:128px">2</span>
+    <span class="c" style="left:456px; top:68px">3</span>
+    <span class="c" style="left:486px; top:96px">4</span>
+  </div>
+  <div class="legend">
+    <div><span class="c">1</span><div><b>A Driver</b> beside the peg it drives. Right-click a peg ▸ <i>Add Driver</i>, or <i>Add Node ▸ Move ▸ Driver</i> with the peg selected.</div></div>
+    <div><span class="c">2</span><div><b>Its wire</b> into the side of its peg, dashed: it carries nothing; what the driver gives is added to the peg's own values.</div></div>
+    <div><span class="c">3</span><div><b>An input</b> Drag a peg's port onto the driver: it reads that peg by a name of its own (<i>Char-P</i> is <span class="mono">char</span>).</div></div>
+    <div><span class="c">4</span><div><b>!</b> On this frame a value it gives comes to no number, and adds nothing: a division by zero, or an input with no peg.</div></div>
+  </div>
+  <div class="cols" style="margin-top:18px">
+    <div>
+      <h2>Expressions</h2>
+      <p>Pick the driver and write them in <b>Properties</b>, one a line, then <b>Set</b> (<kbd>Cmd+Enter</kbd>):</p>
+      <p class="mono" style="margin-top:6px; line-height:1.6">let turns = parent.travelled / radius<br>rotation = deg(turns)<br>let up = abs(char.world.y - ground) / 300<br>scaleX = clamp(up, 0, 1) * -0.6</p>
+      <p style="margin-top:6px">A line gives <span class="mono">x</span>, <span class="mono">y</span>, <span class="mono">rotation</span>, <span class="mono">scaleX</span>, <span class="mono">scaleY</span>, <span class="mono">skew</span> or <span class="mono">depth</span>. It reads an input's values (<span class="mono">car.x</span>), where it is in the scene (<span class="mono">car.world.x</span>), how far it has gone (<span class="mono">car.travelled</span>), the peg's own (<span class="mono">own.x</span>), its <span class="mono">parent</span>, the parameters by name and the <span class="mono">frame</span>. The maths is JavaScript's, with <span class="mono">clamp</span>, <span class="mono">remap</span>, <span class="mono">noise</span>, <span class="mono">at(car.x, frame - 3)</span> and <span class="mono">spring</span>. What is wrong is said under the editor as you type.</p>
+    </div>
+    <div>
+      <h2>Presets</h2>
+      <p>The list at the top of its Properties: <b>Roll with Parent</b>, <b>Shadow from Height</b>, <b>Follow with Lag</b>, <b>Wiggle</b>, <b>Bounce</b> and <b>Look At</b>. Each brings its inputs and parameters; wire the pegs in and set the numbers. <b>Save as Preset…</b> keeps your own, listed in every project.</p>
+      <h2>Parameters and keys</h2>
+      <p>A parameter, as a wheel's <span class="mono">radius</span>, is a number of the driver's that can be keyed. Keyed, the driver has a row under its peg on the timeline, its <b>+</b> a row for each parameter. The function curves draw a driven value dashed beside the peg's own.</p>
+      <h2>Bake into Keys</h2>
+      <p>From its menu: the peg is keyed on every frame as the driver makes it, and the driver goes, to adjust by hand or to send the shot out.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>17</span></div>
+</section>
+
+<!-- ───────────────────────────── 16 Camera ───────────────────────────── -->
+<section class="page">
+  <h1><span class="n">16</span>The camera and depth</h1>
   <p class="lead">Iskra is 2D, but its layers lie at depths in front of a camera, so a camera move gives parallax, and what is nearer is in front.</p>
   <div class="cols">
     <div class="mock" style="height:270px; padding:0">
@@ -1024,12 +1075,12 @@ table.keys tr.head td { padding-top: 10px; }
       <p><b>View ▸ Guide:</b> Action Safe, Title Safe, Rule of Thirds, Centre Cross, 12 Fields; <b>My Guides…</b> for your own. <b>Aspect Mask</b> on the view bar darkens what is outside another frame's shape, as a cinema crop.</p>
     </div>
   </div>
-  <div class="foot"><span>Iskra · Quick guide</span><span>17</span></div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>18</span></div>
 </section>
 
 <!-- ───────────────────────────── 16 Export ───────────────────────────── -->
 <section class="page">
-  <h1><span class="n">16</span>The Export page</h1>
+  <h1><span class="n">17</span>The Export page</h1>
   <p class="lead">Rendering is shot by shot: a queue that knows which shots are rendered and which have changed since.</p>
   <div class="mock" style="height:300px; padding:0">
     <div style="position:absolute; left:0; top:0; bottom:0; width:190px; border-right:1px solid var(--ui-line); padding:10px; font-size:10.5px">
@@ -1092,12 +1143,12 @@ table.keys tr.head td { padding-top: 10px; }
       <p class="small">renders from the command line, for render farms and scripts.</p>
     </div>
   </div>
-  <div class="foot"><span>Iskra · Quick guide</span><span>18</span></div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>19</span></div>
 </section>
 
 <!-- ───────────────────────────── 17 Make it yours ───────────────────────────── -->
 <section class="page">
-  <h1><span class="n">17</span>Make it yours</h1>
+  <h1><span class="n">18</span>Make it yours</h1>
   <p class="lead">Every page's layout, every bar and every key can be changed, and kept.</p>
   <div class="cols">
     <div>
@@ -1131,12 +1182,12 @@ table.keys tr.head td { padding-top: 10px; }
     <p>Scripts are <b>JavaScript</b>. They edit the project through the app's own commands, so anything the menus do a script can do. Put them in the scripts folder (<b>Scripts ▸ Show Scripts Folder</b>): each becomes a command, in the menus, the command palette and the Shortcuts table.</p>
     <p>The <b>Script Console</b> runs a line at a time, to try things. <b>Run Script File…</b> runs one from anywhere. Scripts may only write files if <b>Settings ▸ Scripting</b> lets them.</p>
   </div>
-  <div class="foot"><span>Iskra · Quick guide</span><span>19</span></div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>20</span></div>
 </section>
 
 <!-- ───────────────────────────── 18 Shortcuts ───────────────────────────── -->
 <section class="page">
-  <h1><span class="n">18</span>Keyboard shortcuts</h1>
+  <h1><span class="n">19</span>Keyboard shortcuts</h1>
   <p class="lead" style="margin-bottom:10px">The starting keymap, after Harmony's layout. Change any key in Settings ▸ Shortcuts; every other command can get one there too.</p>
   <div class="cols" style="gap:0 28px">
     <table class="keys">
@@ -1190,12 +1241,12 @@ table.keys tr.head td { padding-top: 10px; }
       <tr><td>In / out point</td><td><kbd>Cmd+Shift+I</kbd> / <kbd>Cmd+Shift+O</kbd></td></tr>
     </table>
   </div>
-  <div class="foot"><span>Iskra · Quick guide</span><span>20</span></div>
+  <div class="foot"><span>Iskra · Quick guide</span><span>21</span></div>
 </section>
 
 <!-- ───────────────────────────── 19 Good to know ───────────────────────────── -->
 <section class="page">
-  <h1><span class="n">19</span>Good to know</h1>
+  <h1><span class="n">20</span>Good to know</h1>
   <p class="lead" style="margin-bottom:12px"></p>
   <table>
     <tr><td style="font-size:11px; font-weight:600; letter-spacing:.8px; color:var(--muted); border-bottom:2px solid #cfd3d8">QUESTION</td><td style="font-size:11px; font-weight:600; letter-spacing:.8px; color:var(--muted); border-bottom:2px solid #cfd3d8">ANSWER</td></tr>
@@ -1213,7 +1264,7 @@ table.keys tr.head td { padding-top: 10px; }
     <tr><td><b>Can I get my drawings out of a project without Iskra?</b></td><td><span class="mono">iskra-extract Film.iskra</span> writes the drawings, the timing and the palette out of a project file.</td></tr>
   </table>
   <div class="note" style="margin-top:26px"><b>Iskra</b> is free and open source, under the MIT or Apache 2.0 licence. It is inspired by the workflows of Harmony and TVPaint and shares no code or artwork with them.</div>
-  <div class="foot"><span>Iskra · Quick guide · Version 0.1</span><span>21</span></div>
+  <div class="foot"><span>Iskra · Quick guide · Version 0.1</span><span>22</span></div>
 </section>
 
 </body>

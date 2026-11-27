@@ -30,7 +30,7 @@ const APPLICATION_ID: i64 = 0x4953_4B52;
 
 /// The format version this build writes, and the newest it reads (`PRAGMA user_version`). Older
 /// files are converted as they are read (see `migrate`).
-pub(crate) const FORMAT_VERSION: i64 = 62;
+pub(crate) const FORMAT_VERSION: i64 = 63;
 
 /// Bytes in a stored tile, once decompressed: both pixel kinds use 4 bytes a pixel.
 const TILE_BYTES: usize = (TILE_SIZE * TILE_SIZE) as usize * 4;

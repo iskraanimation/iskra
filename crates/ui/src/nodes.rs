@@ -37,7 +37,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use egui::epaint::CubicBezierShape;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, Vec2, pos2, vec2};
-use iskra_model::{ArtLayerKind, CompositeId, DeformerId, DisplayId, EffectId, GroupId, LayerId, Node, Part, PegId, Shot, Source, effect_kinds};
+use iskra_model::{ArtLayerKind, CompositeId, DeformerId, DisplayId, DriverId, EffectId, GroupId, LayerId, Node, Part, PegId, Shot, Source, effect_kinds};
 use serde_json::{Value, json};
 
 use crate::theme::{Role, Theme};
@@ -59,6 +59,9 @@ pub enum Item {
     Display(DisplayId),
     /// The shot's camera (plan §4.4): the peg it is parented to is wired into it.
     Camera,
+    /// A Driver node (plan §8.8): the pegs it reads are wired into its top, and it into the
+    /// side of the peg it drives.
+    Driver(DriverId),
 }
 
 impl Item {
@@ -73,6 +76,7 @@ impl Item {
             Item::Effect(id) => id.0,
             Item::Display(id) => id.0,
             Item::Camera => shot.camera.id.0,
+            Item::Driver(id) => id.0,
         }
     }
 
@@ -82,7 +86,7 @@ impl Item {
             Item::Layer(id) => Some(Source::Layer(id)),
             Item::Composite(id) => Some(Source::Composite(id)),
             Item::Effect(id) => Some(Source::Effect(id)),
-            Item::Peg(_) | Item::Deformer(_) | Item::Group(_) | Item::Display(_) | Item::Camera => None,
+            Item::Peg(_) | Item::Deformer(_) | Item::Group(_) | Item::Display(_) | Item::Camera | Item::Driver(_) => None,
         }
     }
 
@@ -94,7 +98,7 @@ impl Item {
             Item::Peg(id) => Some(Part::Peg(id)),
             Item::Composite(id) => Some(Part::Composite(id)),
             Item::Group(id) => Some(Part::Group(id)),
-            Item::Deformer(_) | Item::Effect(_) | Item::Display(_) | Item::Camera => None,
+            Item::Deformer(_) | Item::Effect(_) | Item::Display(_) | Item::Camera | Item::Driver(_) => None,
         }
     }
 
@@ -106,6 +110,7 @@ impl Item {
             Item::Composite(id) => shot.composite(id)?.template.as_deref(),
             Item::Group(id) => shot.group(id)?.template.as_deref(),
             Item::Effect(id) => shot.effect(id)?.template.as_deref(),
+            Item::Driver(id) => shot.driver(id)?.template.as_deref(),
             Item::Deformer(_) | Item::Display(_) | Item::Camera => None,
         }
     }
@@ -128,6 +133,7 @@ impl Item {
             Item::Effect(id) => shot.effect(id).map_or("?", |effect| &effect.name),
             Item::Display(id) => shot.display_name_of(id).unwrap_or("?"),
             Item::Camera => "Camera",
+            Item::Driver(id) => shot.driver(id).map_or("?", |driver| &driver.name),
         }
     }
 
@@ -142,6 +148,8 @@ impl Item {
             Item::Effect(_) => Role::NodeEffect,
             Item::Display(_) => Role::NodeDisplay,
             Item::Camera => Role::NodeCamera,
+            // Of the Move category, as a peg is (plan §8.8).
+            Item::Driver(_) => Role::NodePeg,
         })
     }
 }
@@ -222,9 +230,9 @@ impl Wire {
 /// The outputs of a layer's box for its art layers, beside its flat one in the middle: each
 /// with how far along the bottom of the box it is, its name and what it gives.
 const ART_PORTS: [(ArtLayerKind, f32, &str); 3] = [
-    (ArtLayerKind::ColourArt, 0.12, "Colour Art: a wire from here gives the colour art of the drawings alone"),
+    (ArtLayerKind::Overart, 0.12, "Overart: a wire from here gives the overart of the drawings alone"),
     (ArtLayerKind::LineArt, 0.24, "Line Art: a wire from here gives the line art of the drawings alone"),
-    (ArtLayerKind::Overart, 0.36, "Overart: a wire from here gives the overart of the drawings alone"),
+    (ArtLayerKind::ColourArt, 0.36, "Colour Art: a wire from here gives the colour art of the drawings alone"),
 ];
 
 /// How far along the bottom of a layer's box the output of an art layer is.
@@ -256,6 +264,9 @@ enum Kind {
     Picture,
     Transform,
     Bend,
+    /// A peg a Driver reads, or the Driver into the peg it drives: drawn dashed, as it
+    /// carries nothing.
+    Read,
 }
 
 enum Drag {
@@ -511,6 +522,12 @@ pub fn layout(shot: &Shot) -> HashMap<Item, Pos2> {
         if !places.contains_key(&Item::Deformer(deformer.id)) {
             places.insert(Item::Deformer(deformer.id), pos2(places.values().map(|at| at.x).fold(0.0, f32::max) + ACROSS, -DOWN * 2.0));
         }
+    }
+    // A driver is at the left of the peg it drives, half a step up, where the peg is put.
+    for driver in &shot.drivers {
+        let peg = shot.places.get(&driver.drives.0).map(|[x, y]| pos2(*x as f32, *y as f32)).or(places.get(&Item::Peg(driver.drives)).copied());
+        let at = peg.map_or_else(|| pos2(places.values().map(|at| at.x).fold(0.0, f32::max) + ACROSS, -DOWN * 2.0), |peg| peg - vec2(ACROSS, DOWN * 0.5));
+        places.insert(Item::Driver(driver.id), at);
     }
     for (item, at) in &mut places {
         if let Some([x, y]) = shot.places.get(&item.key(shot)) {
@@ -786,6 +803,38 @@ fn wires(shot: &Shot, places: &HashMap<Item, Pos2>) -> Vec<Wire> {
             });
         }
     }
+    // The pegs a driver reads come into its top side by side, in the order of its inputs; it
+    // goes into the left side of the peg it drives.
+    for driver in &shot.drivers {
+        if let (Some(at), Some(peg)) = (places.get(&Item::Driver(driver.id)), places.get(&Item::Peg(driver.drives))) {
+            let end = *peg - vec2(SIZE.x / 2.0, 0.0);
+            wires.push(Wire {
+                from: Item::Driver(driver.id),
+                to: Item::Peg(driver.drives),
+                end,
+                kind: Kind::Read,
+                leaves: None,
+                fresh: false,
+                was: None,
+                art: None,
+            });
+            let wired: Vec<PegId> = driver.inputs.iter().filter_map(|input| input.peg).collect();
+            for (index, read) in wired.iter().enumerate() {
+                let x = at.x - SIZE.x / 2.0 + SIZE.x * (index + 1) as f32 / (wired.len() + 1) as f32;
+                let end = pos2(x, at.y - SIZE.y / 2.0);
+                wires.push(Wire {
+                    from: Item::Peg(*read),
+                    to: Item::Driver(driver.id),
+                    end,
+                    kind: Kind::Read,
+                    leaves: None,
+                    fresh: false,
+                    was: None,
+                    art: None,
+                });
+            }
+        }
+    }
     // Pegs wired into the ports at the left of a chain's or a curve's top: the start's, which
     // carries its start, and the end's, its IK's goal or a curve's last point. A port, a Send
     // or a Receive can stand there for a peg.
@@ -860,6 +909,13 @@ fn cut(shot: &Shot, wire: &Wire) -> Option<Action> {
         (Item::Deformer(_), Item::Layer(layer)) => Action::Run("layer.setDeformer", json!({ "layer": layer.0 })),
         (Item::Deformer(_), Item::Peg(peg)) => Action::Run("peg.setFollow", json!({ "peg": peg.0 })),
         (Item::Group(_), _) | (_, Item::Group(_)) => return None,
+        // A peg a driver reads is let go: its input stays, empty. The driver's own wire into
+        // its peg goes only with the driver.
+        (Item::Peg(peg), Item::Driver(driver)) => {
+            let input = shot.driver(driver)?.inputs.iter().find(|input| input.peg == Some(peg))?.name.clone();
+            Action::Run("driver.connect", json!({ "driver": driver.0, "input": input }))
+        }
+        (Item::Driver(_), _) => return None,
         // A peg in a port: the start's, where it is wired there, else the end's. Or a port, a
         // Send or a Receive in its place.
         (Item::Peg(_) | Item::Effect(_), Item::Deformer(bones)) if wire.kind == Kind::Bend => {
@@ -879,6 +935,7 @@ fn cut(shot: &Shot, wire: &Wire) -> Option<Action> {
         (_, Item::Composite(composite)) => Action::Run("node.disconnect", json!({ "node": wire.source()?, "from": composite.0 })),
         (_, Item::Display(display)) => Action::Run("display.set", json!({ "display": display.0 })),
         (_, Item::Camera) => Action::Run("camera.setParent", json!({ "shot": shot.id.0 })),
+        (_, Item::Driver(_)) => return None,
     })
 }
 
@@ -924,6 +981,15 @@ fn join(shot: &Shot, (from, art): (Item, Option<ArtLayerKind>), to: Item, index:
             Action::Run("layer.setParent", json!({ "layer": layer.0, "parent": port.0 }))
         }
         (Item::Effect(port), Item::Peg(peg)) if shot.hands_down(PegId(port.0)) => Action::Run("peg.setParent", json!({ "peg": peg.0, "parent": port.0 })),
+        // A peg wired into a driver is read by it, under a name made from the peg's.
+        (Item::Peg(peg), Item::Driver(driver)) => {
+            let driver = shot.driver(driver)?;
+            if driver.inputs.iter().any(|input| input.peg == Some(peg)) {
+                return None;
+            }
+            let name = input_name(driver, &shot.peg(peg)?.name);
+            Action::Run("driver.addInput", json!({ "driver": driver.id.0, "name": name, "peg": peg.0 }))
+        }
         // The camera is moved by the peg that is wired into it.
         (Item::Peg(peg), Item::Camera) => Action::Run("camera.setParent", json!({ "shot": shot.id.0, "parent": peg.0 })),
         (_, Item::Composite(composite)) => Action::Run("node.connect", json!({ "node": source()?, "to": composite.0, "index": index })),
@@ -948,6 +1014,25 @@ fn join(shot: &Shot, (from, art): (Item, Option<ArtLayerKind>), to: Item, index:
         }
         _ => return None,
     })
+}
+
+/// The name a peg wired into `driver` is read by: the peg's, short of the `-P` pegs are
+/// often named with, in the letters and digits a name of the expressions has, its first letter
+/// small; with a number after it where the driver has it already or the language does.
+fn input_name(driver: &iskra_model::Driver, peg: &str) -> String {
+    let short = ["-P", "_P", " P", "-p", "_p"].iter().find_map(|end| peg.strip_suffix(end)).unwrap_or(peg);
+    let mut name: String = short.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect();
+    if let Some(first) = name.chars().next() {
+        name.replace_range(..first.len_utf8(), &first.to_lowercase().to_string());
+    }
+    if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
+        name = format!("peg{name}");
+    }
+    let taken = |name: &str| iskra_model::reserved_in_expressions(name) || driver.input(name).is_some() || driver.parameter(name).is_some();
+    if !taken(&name) {
+        return name;
+    }
+    (2..).map(|n| format!("{name}{n}")).find(|name| !taken(name)).unwrap_or(name)
 }
 
 /// The commands, as one step, that take `wire` off the box it arrives at and wire what it
@@ -1010,6 +1095,7 @@ fn is_off(shot: &Shot, item: Item) -> bool {
         Item::Layer(id) => shot.hides(id),
         Item::Peg(id) => gone(id.0) || shot.ancestors(shot.peg(id).and_then(|peg| peg.parent)).any(|peg| gone(peg.id.0)),
         Item::Effect(id) => gone(id.0) || shot.effect(id).is_some_and(|effect| !effect.enabled),
+        Item::Driver(id) => shot.driver(id).is_some_and(|driver| driver.off),
         Item::Composite(_) | Item::Deformer(_) | Item::Group(_) => gone(item.key(shot)),
     }
 }
@@ -1024,6 +1110,7 @@ pub(crate) fn switching(shot: &Shot, nodes: impl IntoIterator<Item = u64>, on: b
         Item::Layer(_) | Item::Peg(_) | Item::Group(_) => {
             (shot.hidden.contains(&node) == on).then(|| json!({ "id": "shot.setHidden", "params": { "node": node, "hidden": !on } }))
         }
+        Item::Driver(id) => (shot.driver(id)?.off == on).then(|| json!({ "id": "driver.setEnabled", "params": { "driver": node, "enabled": on } })),
         Item::Composite(_) | Item::Deformer(_) | Item::Display(_) | Item::Camera => None,
     };
     let commands: Vec<Value> = nodes.into_iter().filter_map(one).collect();
@@ -1042,6 +1129,7 @@ fn item_of(shot: &Shot, key: u64) -> Option<Item> {
         Item::Effect(EffectId(key)),
         Item::Display(DisplayId(key)),
         Item::Camera,
+        Item::Driver(DriverId(key)),
     ];
     kinds.into_iter().find(|item| match item {
         Item::Layer(id) => shot.layer(*id).is_some(),
@@ -1051,6 +1139,7 @@ fn item_of(shot: &Shot, key: u64) -> Option<Item> {
         Item::Group(id) => shot.group(*id).is_some(),
         Item::Effect(id) => shot.effect(*id).is_some(),
         Item::Camera => shot.camera.id.0 == key,
+        Item::Driver(id) => shot.driver(*id).is_some(),
         // The main display is under the shot's own id, which is no node's.
         Item::Display(id) => *id != shot.main_display() && shot.has_display(*id),
     })
@@ -1092,7 +1181,7 @@ fn rig_of(shot: &Shot, item: Item) -> Vec<u64> {
             nodes.extend(above);
         }
         Item::Deformer(id) => layers.extend(shot.layers.iter().filter(|layer| layer.deformer == Some(id)).map(|layer| layer.id)),
-        Item::Group(_) | Item::Effect(_) | Item::Display(_) | Item::Camera => {}
+        Item::Group(_) | Item::Effect(_) | Item::Display(_) | Item::Camera | Item::Driver(_) => {}
     }
     nodes.extend(layers.iter().map(|layer| layer.0));
     nodes.extend(layers.iter().filter_map(|layer| shot.layer(*layer)?.deformer).map(|deformer| deformer.0));
@@ -1187,16 +1276,28 @@ fn added(shot: &Shot, kind: &iskra_model::EffectKind, below: Option<&Below>, at:
     Action::Run("edit.batch", json!({ "commands": commands, "title": format!("Add {}", kind.title) }))
 }
 
-/// The nodes the search adds that are no effects: their titles, the command that makes each,
-/// and what each is.
-const STRUCTURE: [(&str, &str, &str); 6] = [
-    ("Layer", "layer.new", "A drawing layer, on top of what the composite it goes to stacks"),
-    ("Text Layer", TEXT_LAYER_NEW, "A text layer (plan §4.19): its drawings are texts, typed with the Text tool"),
-    ("Peg", "peg.new", "A peg: it moves, turns and scales what is parented to it"),
-    ("Composite", "composite.new", "A composite: it stacks what is wired into it into one picture"),
-    ("Display", "display.new", "Another display: another picture of the shot, for the viewer"),
-    ("Pass", PASS_NEW, "A pass: what is wired into it is rendered apart on the Export page, under its name"),
+/// The nodes the search and *Add Node* add that are no effects: their titles, the command that
+/// makes each, what each is, and the category of plan §8.4 it is listed under.
+const STRUCTURE: [(&str, &str, &str, &str); 6] = [
+    ("Layer", "layer.new", "A drawing layer, on top of what the composite it goes to stacks", "Sources"),
+    ("Text Layer", TEXT_LAYER_NEW, "A text layer (plan §4.19): its drawings are texts, typed with the Text tool", "Sources"),
+    ("Peg", "peg.new", "A peg: it moves, turns and scales what is parented to it", "Move"),
+    ("Composite", "composite.new", "A composite: it stacks what is wired into it into one picture", "Combine"),
+    ("Display", "display.new", "Another display: another picture of the shot, for the viewer", "Structure"),
+    ("Pass", PASS_NEW, "A pass: what is wired into it is rendered apart on the Export page, under its name", "Structure"),
 ];
+
+/// The command and its parameters that make the node of `STRUCTURE` that `command` names, at
+/// `at` in the node view and in the open group `group` there; a display, which is in no group.
+fn structure_made(shot: &Shot, command: &'static str, at: Option<[f64; 2]>, group: Option<u64>) -> Action {
+    let (command, params) = match command {
+        "display.new" => (command, json!({ "shot": shot.id.0, "at": at })),
+        PASS_NEW => ("display.new", json!({ "shot": shot.id.0, "at": at, "pass": true })),
+        TEXT_LAYER_NEW => ("layer.new", json!({ "shot": shot.id.0, "group": group, "at": at, "kind": "text" })),
+        _ => (command, json!({ "shot": shot.id.0, "group": group, "at": at })),
+    };
+    Action::Run(command, params)
+}
 
 /// What the search says to make a Pass: `display.new` with `pass`.
 const PASS_NEW: &str = "display.newPass";
@@ -1268,6 +1369,7 @@ fn kind_from(item: Item) -> Kind {
     match item {
         Item::Peg(_) => Kind::Transform,
         Item::Deformer(_) => Kind::Bend,
+        Item::Driver(_) => Kind::Read,
         Item::Layer(_) | Item::Composite(_) | Item::Group(_) | Item::Effect(_) | Item::Display(_) | Item::Camera => Kind::Picture,
     }
 }
@@ -1307,10 +1409,11 @@ impl NodeView {
         here: impl Fn(Option<Pos2>) -> Option<[f64; 2]>,
         into: impl Fn(Option<Pos2>) -> Option<u64>,
         below: Option<&Below>,
+        driving: Option<PegId>,
         actions: &mut Vec<Action>,
     ) {
         let Some((query, at, marked)) = self.search.as_mut() else { return };
-        let (at, mut chosen, mut made) = (*at, None, None);
+        let (at, mut chosen, mut made, mut drive) = (*at, None, None, false);
         let mut close = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         let area = egui::Area::new(egui::Id::new("add node search")).order(egui::Order::Foreground).fixed_pos(at);
         let shown = area.show(ui.ctx(), |ui| {
@@ -1318,12 +1421,16 @@ impl NodeView {
                 ui.set_width(220.0);
                 // The nodes that are no effects first, then the kinds of effect.
                 let words = query.to_lowercase();
-                let structure: Vec<&(&str, &str, &str)> = STRUCTURE
+                let structure: Vec<&(&str, &str, &str, &str)> = STRUCTURE
                     .iter()
-                    .filter(|(title, _, _)| words.split_whitespace().all(|word| format!("structure {}", title.to_lowercase()).contains(word)))
+                    .filter(|(title, _, _, category)| {
+                        words.split_whitespace().all(|word| format!("{} {}", category.to_lowercase(), title.to_lowercase()).contains(word))
+                    })
                     .collect();
+                // A Driver, of the Move category, after the nodes that are no effects.
+                let driver = words.split_whitespace().all(|word| "move driver".contains(word));
                 let kinds = found(query);
-                let count = structure.len() + kinds.len();
+                let count = structure.len() + usize::from(driver) + kinds.len();
                 let moved = ui.input_mut(|i| {
                     i64::from(i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) - i64::from(i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp))
                 });
@@ -1336,13 +1443,26 @@ impl NodeView {
                 }
                 field.request_focus();
                 ui.separator();
-                for (index, (title, command, hint)) in structure.iter().enumerate() {
-                    let row = ui.add(egui::Button::selectable(index == *marked, *title).shortcut_text("Structure")).on_hover_text(*hint);
+                for (index, (title, command, hint, category)) in structure.iter().enumerate() {
+                    let row = ui.add(egui::Button::selectable(index == *marked, *title).shortcut_text(*category)).on_hover_text(*hint);
                     if row.clicked() || (entered && index == *marked) {
                         made = Some(*command);
                     }
                 }
-                for (index, kind) in kinds.iter().enumerate().map(|(at, kind)| (at + structure.len(), kind)) {
+                if driver {
+                    let index = structure.len();
+                    let hint = match driving.and_then(|peg| shot.peg(peg)) {
+                        Some(peg) => format!("A Driver of {}: expressions over other pegs that add to its position, rotation and scale", peg.name),
+                        None => "A Driver goes on a peg: select a peg that has none first".to_string(),
+                    };
+                    let button = egui::Button::selectable(index == *marked, "Driver").shortcut_text("Move");
+                    let row = ui.add_enabled(driving.is_some(), button).on_hover_text(hint.clone()).on_disabled_hover_text(hint);
+                    if row.clicked() || (entered && index == *marked && driving.is_some()) {
+                        drive = true;
+                    }
+                }
+                let after = structure.len() + usize::from(driver);
+                for (index, kind) in kinds.iter().enumerate().map(|(at, kind)| (at + after, kind)) {
                     let row = ui.add(egui::Button::selectable(index == *marked, kind.title).shortcut_text(kind.category)).on_hover_text(kind.hint);
                     if row.clicked() || (entered && index == *marked) {
                         chosen = Some(kind.id);
@@ -1362,15 +1482,12 @@ impl NodeView {
         // A layer, a peg or a composite where the search was opened, in the open group there; a
         // display there, which is in no group.
         if let Some(command) = made {
-            let (command, params) = match command {
-                "display.new" => (command, json!({ "shot": shot.id.0, "at": here(Some(at)) })),
-                PASS_NEW => ("display.new", json!({ "shot": shot.id.0, "at": here(Some(at)), "pass": true })),
-                TEXT_LAYER_NEW => ("layer.new", json!({ "shot": shot.id.0, "group": into(Some(at)), "at": here(Some(at)), "kind": "text" })),
-                _ => (command, json!({ "shot": shot.id.0, "group": into(Some(at)), "at": here(Some(at)) })),
-            };
-            actions.push(Action::Run(command, params));
+            actions.push(structure_made(shot, command, here(Some(at)), into(Some(at))));
         }
-        if close || chosen.is_some() || made.is_some() {
+        if let (true, Some(peg)) = (drive, driving) {
+            actions.push(Action::Run("driver.new", json!({ "peg": peg.0, "at": here(Some(at)) })));
+        }
+        if close || chosen.is_some() || made.is_some() || drive {
             self.search = None;
         }
     }
@@ -1498,6 +1615,12 @@ impl NodeView {
         }
         // One node picked that gives a picture: an effect that is added goes below it.
         let below = picked.iter().next().filter(|_| picked.len() == 1).and_then(|key| item_of(shot, *key)).and_then(|item| Below::of(shot, item, &places));
+        // The peg a Driver that is added goes on: the one selected, or picked alone, that has none.
+        let driving = match selected {
+            Some(Node::Peg(peg)) => Some(peg),
+            _ => picked.iter().next().filter(|_| picked.len() == 1).map(|key| PegId(*key)),
+        };
+        let driving = driving.filter(|peg| shot.peg(*peg).is_some() && shot.driver_of(*peg).is_none());
         let mut boxes: Vec<(Item, Rect)> = {
             // The display last, then composites, pegs, layers and bones: the order they are drawn in.
             let composites = shot.composites.iter().map(|c| Item::Composite(c.id));
@@ -1508,7 +1631,9 @@ impl NodeView {
             let all = all.chain(folded).filter(|item| shot.folded_into(item.key(shot)).is_none());
             let placed = |item: Item| Some((item, Rect::from_center_size(on_screen(*places.get(&item)?), SIZE * zoom)));
             let displays = std::iter::once(shot.main_display()).chain(shot.displays.iter().map(|display| display.id)).map(Item::Display);
-            all.chain([Item::Camera]).chain(displays).filter_map(placed).collect()
+            // A driver is put away with the peg it drives.
+            let drivers = shot.drivers.iter().filter(|driver| shot.folded_into(driver.drives.0).is_none()).map(|driver| Item::Driver(driver.id));
+            all.chain(drivers).chain([Item::Camera]).chain(displays).filter_map(placed).collect()
         };
         // The frames of the open groups that are seen, the widest first so that a group in a
         // group is drawn over it: round the boxes of what is in each, with room for its name.
@@ -1766,6 +1891,7 @@ impl NodeView {
             Kind::Picture => theme.text_muted,
             Kind::Transform => Item::Peg(PegId(0)).color(&theme),
             Kind::Bend => Item::Deformer(DeformerId(0)).color(&theme),
+            Kind::Read => Item::Peg(PegId(0)).color(&theme),
         };
         // Whether `pos` is on a wire, or within `reach` of it.
         let on_wire = |wire: &Wire, pos: Pos2, reach: f32| {
@@ -1806,9 +1932,14 @@ impl NodeView {
                     (false, false) => Stroke::new(1.5, wire_color(wire.kind)),
                 };
                 let shape = CubicBezierShape::from_points_stroke(curve(from, to), false, Color32::TRANSPARENT, stroke);
+                // What a driver reads, and its wire into its peg, are dashed: they carry nothing.
+                let shapes: Vec<egui::Shape> = match wire.kind {
+                    Kind::Read => egui::Shape::dashed_line(&shape.flatten(Some(1.0)), stroke, 5.0 * zoom.max(0.5), 4.0 * zoom.max(0.5)),
+                    _ => vec![shape.into()],
+                };
                 match layer(wire.from).max(layer(wire.to)) {
-                    0 => drop(painter.add(shape)),
-                    deep => over_frames.entry(deep).or_default().push(shape.into()),
+                    0 => painter.extend(shapes),
+                    deep => over_frames.entry(deep).or_default().extend(shapes),
                 }
             }
         }
@@ -2000,8 +2131,35 @@ impl NodeView {
                     ui.close();
                 }
                 ui.separator();
+                // A Driver goes on a peg: the one selected, or picked alone, that has none.
+                // The nodes that are no effects, in their categories, before the kinds of effect.
+                let structure_in = |ui: &mut egui::Ui, category: &str, actions: &mut Vec<Action>| {
+                    for (title, command, hint, _) in STRUCTURE.iter().filter(|(.., of)| *of == category) {
+                        if ui.button(*title).on_hover_text(*hint).clicked() {
+                            actions.push(structure_made(shot, command, here(opened), into(opened)));
+                            ui.close();
+                        }
+                    }
+                };
+                ui.menu_button("Move", |ui| {
+                    structure_in(ui, "Move", &mut actions);
+                    let peg = driving;
+                    let hint = match peg.and_then(|peg| shot.peg(peg)) {
+                        Some(peg) => format!("A Driver of {}: expressions over other pegs that add to its position, rotation and scale", peg.name),
+                        None => "A Driver goes on a peg: select a peg that has none first".to_string(),
+                    };
+                    let button = ui.add_enabled(peg.is_some(), egui::Button::new("Driver")).on_hover_text(hint.clone()).on_disabled_hover_text(hint);
+                    if let (true, Some(peg)) = (button.clicked(), peg) {
+                        actions.push(Action::Run("driver.new", json!({ "peg": peg.0, "at": here(opened) })));
+                        ui.close();
+                    }
+                });
                 for category in categories() {
                     ui.menu_button(category, |ui| {
+                        structure_in(ui, category, &mut actions);
+                        if STRUCTURE.iter().any(|(.., of)| *of == category) {
+                            ui.separator();
+                        }
                         for kind in effect_kinds().iter().filter(|kind| kind.category == category && !is_port_kind(kind.id)) {
                             if ui.button(kind.title).on_hover_text(kind.hint).clicked() {
                                 actions.push(added(shot, kind, below.as_ref(), here(opened), into(opened)));
@@ -2013,9 +2171,9 @@ impl NodeView {
             });
         });
         // Enter over the view opens the search that adds a node: with nothing picked, or with
-        // the one node it goes below.
+        // the one node it goes below, or the peg a Driver would go on.
         if self.search.is_none()
-            && (picked.is_empty() || below.is_some())
+            && (picked.is_empty() || below.is_some() || driving.is_some())
             && self.renaming.is_none()
             && response.hovered()
             && !ui.ctx().text_edit_focused()
@@ -2023,7 +2181,7 @@ impl NodeView {
         {
             self.search = response.hover_pos().map(|at| (String::new(), at, 0));
         }
-        self.search_window(ui, shot, here, into, below.as_ref(), &mut actions);
+        self.search_window(ui, shot, here, into, below.as_ref(), driving, &mut actions);
 
         // The boxes: those in no group first, then layer by layer a frame with what goes over
         // it, and the boxes of its group.
@@ -2051,7 +2209,7 @@ impl NodeView {
                 Item::Layer(id) => selected == Some(Node::Layer(id)),
                 Item::Peg(id) => selected == Some(Node::Peg(id)),
                 Item::Deformer(id) => bones_selected == Some(id),
-                Item::Composite(_) | Item::Group(_) | Item::Effect(_) | Item::Display(_) | Item::Camera => false,
+                Item::Composite(_) | Item::Group(_) | Item::Effect(_) | Item::Display(_) | Item::Camera | Item::Driver(_) => false,
             } || picked.contains(&item.key(shot));
             #[cfg(test)]
             if is_selected {
@@ -2078,6 +2236,10 @@ impl NodeView {
             painter.rect_filled(band, 3.0 * zoom, if off { colour.gamma_multiply(0.35) } else { colour });
             // An effect that is switched off says so.
             let switched_off = matches!(item, Item::Effect(id) if shot.effect(id).is_some_and(|effect| !effect.enabled));
+            let failing = |item: Item| match item {
+                Item::Driver(id) => shot.driver(id).is_some_and(|driver| !driver.off && shot.amounts(driver, frame).failed),
+                _ => false,
+            };
             if let Some((_, name)) = self.renaming.as_mut().filter(|(renamed, _)| *renamed == item) {
                 let mut inside = ui.new_child(egui::UiBuilder::new().max_rect(node.shrink2(vec2(8.0, 3.0))));
                 let edit = inside.add(egui::TextEdit::singleline(name).desired_width(f32::INFINITY));
@@ -2093,6 +2255,7 @@ impl NodeView {
                             Item::Display(id) => Some(Action::Run("display.rename", json!({ "display": id.0, "name": name }))),
                             Item::Layer(id) => Some(Action::Run("layer.rename", json!({ "layer": id.0, "name": name }))),
                             Item::Peg(id) => Some(Action::Run("peg.rename", json!({ "peg": id.0, "name": name }))),
+                            Item::Driver(id) => Some(Action::Run("driver.rename", json!({ "driver": id.0, "name": name }))),
                             Item::Camera => None,
                         });
                     }
@@ -2110,6 +2273,13 @@ impl NodeView {
                 if switched_off {
                     let small = egui::FontId::proportional((9.0 * zoom).max(5.0));
                     painter.text(node.right_top() + vec2(-5.0, 3.0) * zoom, Align2::RIGHT_TOP, "off", small, theme.text_muted);
+                }
+                // A driver whose expressions come to no number on the frame that is showing.
+                if failing(item) {
+                    let small = egui::FontId::proportional((11.0 * zoom).max(6.0));
+                    #[cfg(test)]
+                    self.tags_said.push((item, "!".to_string()));
+                    painter.text(node.right_top() + vec2(-5.0, 2.0) * zoom, Align2::RIGHT_TOP, "!", small, theme.danger);
                 }
                 // A Pass says so under its box.
                 if matches!(item, Item::Display(id) if shot.passes().any(|pass| pass.id == id)) {
@@ -2200,14 +2370,14 @@ impl NodeView {
                     }
                     // The camera is in hand with its tool, which Properties then shows it by.
                     Item::Camera => actions.push(Action::Command("tool.camera")),
-                    Item::Composite(_) | Item::Group(_) | Item::Effect(_) | Item::Display(_) => {}
+                    Item::Composite(_) | Item::Group(_) | Item::Effect(_) | Item::Display(_) | Item::Driver(_) => {}
                 }
             }
             // A double click edits the name: of any node but a group, which it opens, the camera,
             // whose name is its kind, and a board locked as reference.
             let named = match item {
                 Item::Layer(id) => !self.locked.contains(&id),
-                Item::Peg(_) | Item::Composite(_) | Item::Deformer(_) | Item::Effect(_) | Item::Display(_) => true,
+                Item::Peg(_) | Item::Composite(_) | Item::Deformer(_) | Item::Effect(_) | Item::Display(_) | Item::Driver(_) => true,
                 Item::Group(_) | Item::Camera => false,
             };
             if body.double_clicked() && named {
@@ -2267,6 +2437,18 @@ impl NodeView {
             body.context_menu(|ui| self.node_menu(ui, shot, item, picked, &places, &mut actions));
             if let Some(template) = item.template(shot) {
                 body.on_hover_text(format!("A copy from the library template “{template}”"));
+            } else if let Item::Driver(id) = item
+                && let Some(driver) = shot.driver(id)
+            {
+                let peg = shot.peg(driver.drives).map_or("its peg", |peg| peg.name.as_str());
+                let mut said = match driver.expressions.text().trim() {
+                    "" => format!("A driver of {peg}, with no expressions yet"),
+                    text => format!("A driver of {peg}: what it gives is added to the peg's own values\n\n{text}"),
+                };
+                if !driver.off && shot.amounts(driver, frame).failed {
+                    said.push_str("\n\n! On this frame a value it gives comes to no number, and adds nothing: a division by zero, or an input with no peg");
+                }
+                body.on_hover_text(said);
             } else if let Item::Deformer(_) = item {
                 body.on_hover_text(
                     "Bones: they bend the drawings of the layers they are wired to. Drag from the port under them to a layer to bend that one too, \
@@ -2281,7 +2463,7 @@ impl NodeView {
             // flat one, where its Properties show them: a wire from one of them gives that art
             // layer of the drawings alone. One that carries a wire is always shown.
             let sources: Vec<(Item, Pos2, Option<ArtLayerKind>)> = match item {
-                Item::Display(_) | Item::Camera => continue,
+                Item::Display(_) | Item::Camera | Item::Driver(_) => continue,
                 Item::Group(group) => {
                     let out = folded_ports(group, iskra_model::PORT_OUT).into_iter();
                     out.map(|(port, part)| (Item::Effect(port), pos2(node.left() + node.width() * part, node.bottom()), None)).collect()
@@ -2652,7 +2834,26 @@ impl NodeView {
                     Some(batch) => run(ui, "Add Parent Pegs", "edit.batch", batch),
                     None => run(ui, "Add Parent Peg", "peg.new", json!({ "abovePeg": id.0 })),
                 }
+                // Pushed once `run` is done with `actions`.
+                let mut driving = None;
+                match shot.driver_of(id) {
+                    Some(driver) => {
+                        if ui.button("Pick Its Driver").clicked() {
+                            driving = Some(Action::Pick(vec![driver.id.0]));
+                            ui.close();
+                        }
+                    }
+                    None => {
+                        let at = places.get(&item).map(|at| [f64::from(at.x - ACROSS), f64::from(at.y - DOWN * 0.5)]);
+                        let hint = "A Driver node: expressions over other pegs that add to this peg's position, rotation and scale on every frame";
+                        if ui.button("Add Driver").on_hover_text(hint).clicked() {
+                            driving = Some(Action::Run("driver.new", json!({ "peg": id.0, "at": at })));
+                            ui.close();
+                        }
+                    }
+                }
                 run(ui, "Delete", "peg.delete", json!({ "peg": id.0 }));
+                actions.extend(driving);
             }
             Item::Composite(id) => {
                 if ui.button("Rename").clicked() {
@@ -2717,6 +2918,24 @@ impl NodeView {
                     run(ui, "Delete", "display.delete", json!({ "display": id.0 }));
                 }
             }
+            Item::Driver(id) => {
+                if shot.driver(id).is_none() {
+                    return;
+                }
+                if ui.button("Rename").clicked() {
+                    self.renaming = Some((item, item.name(shot).to_string()));
+                    ui.close();
+                }
+                let hint = "Key the peg on every frame of the shot with what the driver makes it, and take the driver away";
+                let baked = ui.button("Bake into Keys").on_hover_text(hint).clicked();
+                if baked {
+                    ui.close();
+                }
+                run(ui, "Delete", "driver.delete", json!({ "driver": id.0 }));
+                if baked {
+                    actions.push(Action::Run("driver.bake", json!({ "driver": id.0 })));
+                }
+            }
             Item::Camera => {
                 if shot.camera.parent.is_some() {
                     run(ui, "Put It Back at Home", "camera.setParent", json!({ "shot": shot.id.0 }));
@@ -2765,7 +2984,7 @@ impl NodeView {
             }
         });
         // Into a group, out of one, or a new group of the node with what goes with it.
-        if !matches!(item, Item::Display(_) | Item::Camera) {
+        if !matches!(item, Item::Display(_) | Item::Camera | Item::Driver(_)) {
             ui.separator();
             let key = item.key(shot);
             if several {
@@ -3217,5 +3436,97 @@ mod tests {
         for at in [arranged(shot, &mut HashMap::new()), layout(shot)] {
             assert_eq!(at[&Item::Group(group)], pos2(300.0, 200.0));
         }
+    }
+
+    /// A shot with the pegs `Car-P`, `Wheel-P` under it and `Other-P`, and a driver of the
+    /// wheel that reads the car.
+    fn driven() -> (Project, [PegId; 3], DriverId) {
+        let mut project = Project::default();
+        let ids = [PegId(project.new_id()), PegId(project.new_id()), PegId(project.new_id())];
+        let driver = DriverId(project.new_id());
+        let shot = Arc::make_mut(&mut project.shots[0]);
+        for (id, (name, parent)) in ids.iter().zip([("Car-P", None), ("Wheel-P", Some(ids[0])), ("Other-P", None)]) {
+            shot.pegs.push(Arc::new(Peg {
+                id: *id,
+                name: name.to_string(),
+                parent,
+                transform: Transform::default(),
+                animation: Default::default(),
+                template: None,
+                follows: None,
+                inherit: Default::default(),
+                matches: Default::default(),
+            }));
+        }
+        let mut made = iskra_model::Driver::new(driver, "Roll", ids[1]);
+        made.inputs.push(iskra_model::DriverInput { name: "car".into(), peg: Some(ids[0]) });
+        shot.drivers.push(Arc::new(made));
+        (project, ids, driver)
+    }
+
+    #[test]
+    fn a_driver_is_beside_its_peg_with_dashed_wires_from_what_it_reads_and_into_its_peg() {
+        let (project, [car, wheel, _], driver) = driven();
+        let shot = &project.shots[0];
+        let at = layout(shot);
+        let (box_at, peg_at) = (at[&Item::Driver(driver)], at[&Item::Peg(wheel)]);
+        assert!(box_at.x < peg_at.x && box_at.y < peg_at.y, "at the left of its peg, a little up: {box_at:?} {peg_at:?}");
+        let reads: Vec<(Item, Item, Pos2)> =
+            wires(shot, &at).into_iter().filter(|wire| wire.kind == Kind::Read).map(|wire| (wire.from, wire.to, wire.end)).collect();
+        assert_eq!(reads.len(), 2);
+        let (_, _, into_peg) = reads.iter().find(|(from, ..)| *from == Item::Driver(driver)).expect("its wire into its peg");
+        assert_eq!(*into_peg, peg_at - vec2(SIZE.x / 2.0, 0.0), "into the left side of the peg");
+        let (_, _, into_top) = reads.iter().find(|(from, to, _)| (*from, *to) == (Item::Peg(car), Item::Driver(driver))).expect("the car's wire into it");
+        assert_eq!(into_top.y, box_at.y - SIZE.y / 2.0);
+        // Its name, its colour of the Move category, a peg's, and its box found by its id.
+        assert_eq!(Item::Driver(driver).name(shot), "Roll");
+        assert_eq!(item_of(shot, driver.0), Some(Item::Driver(driver)));
+    }
+
+    #[test]
+    fn a_peg_wired_into_a_driver_is_read_by_a_name_made_from_its_own_and_cut_it_is_let_go() {
+        let (project, [car, wheel, other], driver) = driven();
+        let shot = &project.shots[0];
+        let ran = |action: Option<Action>| match action {
+            Some(Action::Run(id, params)) => Some((id, params)),
+            _ => None,
+        };
+        let (id, params) = ran(join(shot, (Item::Peg(other), None), Item::Driver(driver), 0, None)).expect("it is wired");
+        assert_eq!((id, params), ("driver.addInput", json!({ "driver": driver.0, "name": "other", "peg": other.0 })));
+        assert_eq!(ran(join(shot, (Item::Peg(car), None), Item::Driver(driver), 0, None)), None, "the car is read already");
+        let read = wires(shot, &layout(shot)).into_iter().find(|wire| wire.from == Item::Peg(car) && wire.kind == Kind::Read).unwrap();
+        assert_eq!(ran(cut(shot, &read)), Some(("driver.connect", json!({ "driver": driver.0, "input": "car" }))));
+        let own = wires(shot, &layout(shot)).into_iter().find(|wire| wire.from == Item::Driver(driver)).unwrap();
+        assert_eq!(ran(cut(shot, &own)), None, "its own wire goes with it");
+        // Names: short of `-P`, small, free, and none the language has.
+        let held = shot.driver(driver).unwrap();
+        assert_eq!(input_name(held, "Car-P"), "car2");
+        assert_eq!(input_name(held, "Frame"), "frame2");
+        assert_eq!(input_name(held, "Left Wheel-P"), "leftWheel");
+        assert_eq!(input_name(held, "3D-P"), "peg3D");
+        let _ = wheel;
+    }
+
+    #[test]
+    fn a_driver_switched_off_is_drawn_off_and_switched_on_by_its_command() {
+        let (mut project, _, driver) = driven();
+        let shot = Arc::make_mut(&mut project.shots[0]);
+        assert!(!is_off(shot, Item::Driver(driver)));
+        let off = switching(shot, [driver.0], false).expect("it can be switched off");
+        assert_eq!(off["commands"][0], json!({ "id": "driver.setEnabled", "params": { "driver": driver.0, "enabled": false } }));
+        Arc::make_mut(&mut shot.drivers[0]).off = true;
+        assert!(is_off(shot, Item::Driver(driver)) && switching(shot, [driver.0], false).is_none());
+    }
+
+    #[test]
+    fn every_node_that_is_no_effect_is_in_a_category_add_node_has() {
+        for (title, _, _, category) in STRUCTURE {
+            assert!(category == "Move" || categories().contains(&category), "{title} is in {category}, which Add Node has not got");
+        }
+        let in_category = |category: &str| STRUCTURE.iter().filter(|(.., of)| *of == category).map(|(title, ..)| *title).collect::<Vec<_>>();
+        assert_eq!(in_category("Sources"), ["Layer", "Text Layer"]);
+        assert_eq!(in_category("Move"), ["Peg"]);
+        assert_eq!(in_category("Combine"), ["Composite"]);
+        assert_eq!(in_category("Structure"), ["Display", "Pass"]);
     }
 }

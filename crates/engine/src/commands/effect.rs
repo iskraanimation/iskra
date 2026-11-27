@@ -583,7 +583,8 @@ pub(super) fn set_parent(s: &mut Session, params: Value) -> Result<Value> {
         change(p, effect, |effect| {
             effect.parent = parent;
             Ok(())
-        })
+        })?;
+        super::driver::no_loop_in(p, shot_of(p, effect)?.id)
     })?;
     Ok(Value::Null)
 }

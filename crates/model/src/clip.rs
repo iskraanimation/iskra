@@ -18,6 +18,8 @@ pub enum KeyOwner {
     Effect(EffectId),
     /// A shot's camera: its lens, and the peg that moves it, if it has one.
     Camera(ShotId),
+    /// A Driver node (plan §8.8): its parameters, by their names.
+    Driver(crate::DriverId),
 }
 
 impl KeyOwner {
@@ -196,6 +198,7 @@ impl Shot {
                 tracks
             }
             KeyOwner::Effect(id) => self.effect(id)?.params.iter().map(|(id, param)| (id.clone(), TrackRef::One(&param.keys))).collect(),
+            KeyOwner::Driver(id) => self.driver(id)?.parameters.iter().map(|parameter| (parameter.name.clone(), TrackRef::One(&parameter.track))).collect(),
             KeyOwner::Camera(shot) if shot == self.id => {
                 let lens = &self.camera.animation;
                 let mut tracks = vec![(named("zoom"), TrackRef::One(&lens.zoom)), (named("distance"), TrackRef::One(&lens.distance))];
@@ -247,6 +250,10 @@ impl Shot {
             KeyOwner::Effect(id) => {
                 let effect = std::sync::Arc::make_mut(self.effects.iter_mut().find(|effect| effect.id == id)?);
                 effect.params.iter_mut().map(|(id, param)| (id.clone(), TrackMut::One(&mut param.keys))).collect()
+            }
+            KeyOwner::Driver(id) => {
+                let driver = std::sync::Arc::make_mut(self.drivers.iter_mut().find(|driver| driver.id == id)?);
+                driver.parameters.iter_mut().map(|parameter| (parameter.name.clone(), TrackMut::One(&mut parameter.track))).collect()
             }
             KeyOwner::Camera(shot) if shot == self.id => {
                 let (lens, peg) = (&mut self.camera.animation, self.camera.parent);

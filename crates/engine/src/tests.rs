@@ -7661,3 +7661,206 @@ fn a_brush_stamping_a_tip_draws_a_line_of_its_stamps_never_flattened() {
     );
     assert!(refused.is_err());
 }
+
+#[test]
+fn a_peg_deleted_takes_its_driver_with_it_and_empties_the_ports_it_was_wired_into() {
+    use iskra_model::{Driver, DriverId, DriverInput, Expressions, PegId};
+    let mut s = Session::new();
+    let car = s.execute("peg.new", json!({})).unwrap()["id"].as_u64().unwrap();
+    let wheel = s.execute("peg.new", json!({})).unwrap()["id"].as_u64().unwrap();
+    let shadow = s.execute("peg.new", json!({})).unwrap()["id"].as_u64().unwrap();
+    // Until the driver's commands (plan §8.8 step 3), wired in by hand.
+    s.edit("Drivers", |p| {
+        let (first, second) = (DriverId(p.new_id()), DriverId(p.new_id()));
+        let shot = std::sync::Arc::make_mut(&mut p.shots[0]);
+        let mut wheel_driver = Driver::new(first, "Wheel Driver", PegId(wheel));
+        wheel_driver.expressions = Expressions::parse("rotation = car.x").unwrap();
+        wheel_driver.inputs = vec![DriverInput { name: "car".into(), peg: Some(PegId(car)) }];
+        let mut shadow_driver = Driver::new(second, "Shadow Driver", PegId(shadow));
+        shadow_driver.inputs = vec![DriverInput { name: "wheel".into(), peg: Some(PegId(wheel)) }];
+        shot.drivers = vec![std::sync::Arc::new(wheel_driver), std::sync::Arc::new(shadow_driver)];
+        Ok(())
+    })
+    .unwrap();
+    s.execute("peg.delete", json!({ "peg": car })).unwrap();
+    let shot = &s.project().shots[0];
+    assert_eq!(shot.driver_of(PegId(wheel)).unwrap().inputs[0].peg, None);
+    s.execute("peg.delete", json!({ "peg": wheel })).unwrap();
+    let shot = &s.project().shots[0];
+    assert!(shot.driver_of(PegId(wheel)).is_none());
+    assert_eq!(shot.driver_of(PegId(shadow)).unwrap().inputs[0].peg, None);
+    s.undo();
+    s.undo();
+    let shot = &s.project().shots[0];
+    assert_eq!(shot.driver_of(PegId(wheel)).unwrap().inputs[0].peg, Some(PegId(car)));
+}
+
+/// A car keyed from 0 to 100 across over ten frames, a wheel under it and a shadow beside it.
+fn car_wheel_and_shadow(s: &mut Session) -> (u64, u64, u64) {
+    let new =
+        |s: &mut Session, name: &str, parent: Option<u64>| s.execute("peg.new", json!({ "name": name, "parent": parent })).unwrap()["id"].as_u64().unwrap();
+    let car = new(s, "Car-P", None);
+    let wheel = new(s, "Wheel-P", Some(car));
+    let shadow = new(s, "Shadow-P", None);
+    s.execute("peg.setTransform", json!({ "peg": car, "frame": 0, "position": [0.0, 0.0], "animate": true })).unwrap();
+    s.execute("peg.setTransform", json!({ "peg": car, "frame": 10, "position": [100.0, 0.0], "animate": true })).unwrap();
+    (car, wheel, shadow)
+}
+
+fn posed(s: &Session, peg: u64, frame: u32) -> iskra_model::Transform {
+    let shot = &s.project().shots[0];
+    shot.pose(shot.peg(iskra_model::PegId(peg)).unwrap(), frame)
+}
+
+#[test]
+fn a_driver_is_made_set_and_wired_by_its_commands_each_one_undo_step() {
+    let mut s = Session::new();
+    let (car, wheel, shadow) = car_wheel_and_shadow(&mut s);
+    let revision = s.project().shots[0].revision;
+    let driver = s
+        .execute(
+            "driver.new",
+            json!({ "peg": wheel, "expressions": "rotation = parent.travelled / radius * 180 / PI", "parameters": [{ "name": "radius", "value": 50.0 }] }),
+        )
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    assert!((posed(&s, wheel, 10).rotation - 2f64.to_degrees()).abs() < 1e-9);
+    assert_ne!(s.project().shots[0].revision, revision, "the shot renders otherwise");
+    let held = |s: &Session| s.project().shots[0].driver(iskra_model::DriverId(driver)).unwrap().clone();
+    assert_eq!(held(&s).name, "Wheel-P Driver");
+    // One driver a peg, a name of its own, and expressions that read what it has.
+    assert!(turned_down(s.execute("driver.new", json!({ "peg": wheel })), "a driver already"));
+    assert!(turned_down(s.execute("driver.new", json!({ "peg": shadow, "name": "Car-P" })), "already has a peg named `Car-P`"));
+    assert!(turned_down(s.execute("driver.new", json!({ "peg": shadow, "expressions": "x = car.x" })), "read `car`"));
+    assert!(turned_down(s.execute("driver.new", json!({ "peg": shadow, "expressions": "x = (" })), "line 1, column"));
+    assert!(turned_down(s.execute("driver.setExpressions", json!({ "driver": driver, "expressions": "rotation = speed" })), "read `speed`"));
+    let why = s.execute("driver.setExpressions", json!({ "driver": driver, "expressions": "rotation = 1 +" })).unwrap_err().to_string();
+    assert!(why.contains("line 1, column"), "{why}");
+
+    // A parameter set, keyed, and its key moved, eased and taken away.
+    s.execute("driver.set", json!({ "driver": driver, "parameter": "radius", "value": 25.0 })).unwrap();
+    assert!((posed(&s, wheel, 10).rotation - 4f64.to_degrees()).abs() < 1e-9);
+    s.execute("driver.setKey", json!({ "driver": driver, "parameter": "radius", "frame": 0 })).unwrap();
+    s.execute("driver.set", json!({ "driver": driver, "parameter": "radius", "value": 100.0, "frame": 10 })).unwrap();
+    assert!(turned_down(s.execute("driver.set", json!({ "driver": driver, "parameter": "radius", "value": 5.0 })), "say on which `frame`"));
+    assert_eq!(held(&s).parameters[0].at(5), 62.5);
+    s.execute("driver.moveKey", json!({ "driver": driver, "parameter": "radius", "from": 10, "to": 20 })).unwrap();
+    s.execute("driver.setEase", json!({ "driver": driver, "frame": 20, "into": "ease" })).unwrap();
+    assert_eq!(held(&s).parameters[0].track.keys().iter().find(|key| key.frame == 20).map(|key| key.into), Some(iskra_model::Interp::Ease));
+    s.execute("driver.removeKey", json!({ "driver": driver, "frame": 0 })).unwrap();
+    s.execute("driver.removeKey", json!({ "driver": driver, "frame": 20 })).unwrap();
+    assert_eq!((held(&s).parameters[0].track.is_empty(), held(&s).parameters[0].value), (true, 100.0));
+    assert!(turned_down(s.execute("driver.removeKey", json!({ "driver": driver, "frame": 3 })), "no keyframe on frame 3"));
+
+    // Inputs and parameters added, renamed where the expressions read them, and taken away.
+    s.execute("driver.addInput", json!({ "driver": driver, "name": "car", "peg": car })).unwrap();
+    s.execute("driver.setExpressions", json!({ "driver": driver, "expressions": "rotation = car.x / radius" })).unwrap();
+    s.execute("driver.renameInput", json!({ "driver": driver, "input": "car", "name": "truck" })).unwrap();
+    s.execute("driver.renameParameter", json!({ "driver": driver, "parameter": "radius", "name": "size" })).unwrap();
+    assert_eq!(held(&s).expressions.text(), "rotation = truck.x / size");
+    assert!(turned_down(s.execute("driver.removeInput", json!({ "driver": driver, "input": "truck" })), "read `truck`"));
+    assert!(turned_down(s.execute("driver.addParameter", json!({ "driver": driver, "name": "truck" })), "an input named `truck` already"));
+    assert!(turned_down(s.execute("driver.addParameter", json!({ "driver": driver, "name": "frame" })), "a name the expressions have already"));
+    assert!(turned_down(s.execute("driver.addParameter", json!({ "driver": driver, "name": "two words" })), "can't be read by expressions"));
+    s.execute("driver.addParameter", json!({ "driver": driver, "name": "spare", "value": 3.0 })).unwrap();
+    s.execute("driver.removeParameter", json!({ "driver": driver, "parameter": "spare" })).unwrap();
+    s.execute("driver.connect", json!({ "driver": driver, "input": "truck" })).unwrap();
+    assert!(s.project().shots[0].amounts(&held(&s), 3).failed, "an empty port reads nothing");
+    s.execute("driver.connect", json!({ "driver": driver, "input": "truck", "peg": car })).unwrap();
+
+    // Off, on, renamed; and each command one undo step.
+    s.execute("driver.setEnabled", json!({ "driver": driver, "enabled": false })).unwrap();
+    assert_eq!(posed(&s, wheel, 10).rotation, 0.0);
+    s.undo();
+    assert_eq!(posed(&s, wheel, 10).rotation, 1.0);
+    s.execute("driver.rename", json!({ "driver": driver, "name": "Roll" })).unwrap();
+    assert!(turned_down(s.execute("driver.rename", json!({ "driver": driver, "name": "Shadow-P" })), "already has a peg named `Shadow-P`"));
+    assert_eq!(held(&s).name, "Roll");
+    s.execute("driver.delete", json!({ "driver": driver })).unwrap();
+    assert!(s.project().shots[0].drivers.is_empty());
+    s.undo();
+    assert_eq!(held(&s).name, "Roll");
+    let _ = shadow;
+}
+
+#[test]
+fn a_driver_is_not_wired_round_in_a_loop_by_any_command() {
+    let mut s = Session::new();
+    let (car, wheel, shadow) = car_wheel_and_shadow(&mut s);
+    let on_car = s.execute("driver.new", json!({ "peg": car })).unwrap()["id"].as_u64().unwrap();
+    assert!(turned_down(s.execute("driver.addInput", json!({ "driver": on_car, "name": "me", "peg": car })), "can't drive it"));
+    assert!(turned_down(s.execute("driver.addInput", json!({ "driver": on_car, "name": "wheel", "peg": wheel })), "can't drive it"));
+    assert!(turned_down(s.execute("driver.new", json!({ "peg": car, "inputs": [{ "name": "w", "peg": wheel }] })), "a driver already"));
+    s.execute("driver.addInput", json!({ "driver": on_car, "name": "shadow", "peg": shadow })).unwrap();
+    // The shadow can't now read the car, which reads it; nor go under it.
+    assert!(turned_down(s.execute("driver.new", json!({ "peg": shadow, "inputs": [{ "name": "car", "peg": car }] })), "can't drive it"));
+    let on_shadow = s.execute("driver.new", json!({ "peg": shadow })).unwrap()["id"].as_u64().unwrap();
+    assert!(turned_down(s.execute("driver.addInput", json!({ "driver": on_shadow, "name": "wheel", "peg": wheel })), "can't drive it"));
+    assert!(turned_down(s.execute("peg.setParent", json!({ "peg": shadow, "parent": car })), "move itself"));
+    s.execute("driver.connect", json!({ "driver": on_car, "input": "shadow" })).unwrap();
+    s.execute("peg.setParent", json!({ "peg": shadow, "parent": car })).unwrap();
+}
+
+#[test]
+fn a_driver_baked_leaves_its_peg_moving_as_it_did_with_keys() {
+    let mut s = Session::new();
+    let (car, wheel, shadow) = car_wheel_and_shadow(&mut s);
+    s.execute("peg.setTransform", json!({ "peg": shadow, "position": [0.0, 20.0] })).unwrap();
+    let driver = s
+        .execute("driver.new", json!({ "peg": shadow, "expressions": "x = car.x\nscaleX = -car.x / 200", "inputs": [{ "name": "car", "peg": car }] }))
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    let before: Vec<_> = (0..=12).map(|frame| posed(&s, shadow, frame)).collect();
+    let baked = s.execute("driver.bake", json!({ "driver": driver, "from": 2, "to": 12 })).unwrap();
+    assert_eq!(baked["frames"], 11);
+    let shot = &s.project().shots[0];
+    assert!(shot.drivers.is_empty());
+    let peg = shot.peg(iskra_model::PegId(shadow)).unwrap();
+    for frame in 2..=12 {
+        let (now, was) = (peg.transform_at(frame), before[frame as usize]);
+        assert!((now.position[0] - was.position[0]).abs() < 1e-9 && (now.scale[0] - was.scale[0]).abs() < 1e-9, "frame {frame}");
+        assert_eq!(now.position[1], 20.0, "what it did not give stays as it was");
+    }
+    assert!(peg.animation.rotation.is_empty(), "nor is it keyed");
+    // Before the frames baked, it holds the first.
+    assert_eq!(peg.transform_at(0).position[0], before[2].position[0]);
+    s.undo();
+    assert_eq!(s.project().shots[0].drivers.len(), 1);
+    assert!(turned_down(s.execute("driver.bake", json!({ "driver": driver, "from": 5, "to": 2 })), "is after frame"));
+    let _ = wheel;
+}
+
+#[test]
+fn a_preset_put_on_a_driver_brings_its_inputs_and_parameters() {
+    let mut s = Session::new();
+    let (car, _, shadow) = car_wheel_and_shadow(&mut s);
+    let driver = s.execute("driver.new", json!({ "peg": shadow, "parameters": [{ "name": "ground", "value": 20.0 }] })).unwrap()["id"].as_u64().unwrap();
+    s.execute("driver.setPreset", json!({ "driver": driver, "preset": "Shadow from Height" })).unwrap();
+    let held = s.project().shots[0].driver(iskra_model::DriverId(driver)).unwrap().clone();
+    assert_eq!(held.preset.as_deref(), Some("Shadow from Height"));
+    assert_eq!(held.inputs.iter().map(|input| (input.name.as_str(), input.peg)).collect::<Vec<_>>(), [("char", None)]);
+    let values: Vec<(&str, f64)> = held.parameters.iter().map(|p| (p.name.as_str(), p.value)).collect();
+    assert_eq!(values, [("ground", 0.0), ("height", 300.0), ("shrink", -0.6)], "the preset's values, the one it had among them");
+    s.execute("driver.connect", json!({ "driver": driver, "input": "char", "peg": car })).unwrap();
+    assert!((posed(&s, shadow, 10).position[0] - 100.0).abs() < 1e-9);
+    // One of the user's, whole; changed by hand it is no preset's any more.
+    let own = json!({ "name": "Mine", "expressions": "rotation = k", "parameters": [{ "name": "k", "value": 7.0 }] });
+    s.execute("driver.setPreset", json!({ "driver": driver, "preset": own })).unwrap();
+    assert_eq!(posed(&s, shadow, 3).rotation, 7.0);
+    s.execute("driver.setExpressions", json!({ "driver": driver, "expressions": "rotation = k * 2" })).unwrap();
+    assert_eq!(s.project().shots[0].driver(iskra_model::DriverId(driver)).unwrap().preset, None);
+    assert!(turned_down(s.execute("driver.setPreset", json!({ "driver": driver, "preset": "Nope" })), "no preset `Nope`: there are `Roll with Parent`"));
+}
+
+#[test]
+fn a_drivers_input_or_parameter_has_a_name_of_32_letters_at_most() {
+    let mut s = Session::new();
+    let (_, wheel, _) = car_wheel_and_shadow(&mut s);
+    let driver = s.execute("driver.new", json!({ "peg": wheel })).unwrap()["id"].as_u64().unwrap();
+    let long = "a".repeat(33);
+    assert!(turned_down(s.execute("driver.addParameter", json!({ "driver": driver, "name": long })), "longer than 32 letters"));
+    assert!(turned_down(s.execute("driver.addInput", json!({ "driver": driver, "name": long })), "longer than 32 letters"));
+    s.execute("driver.addParameter", json!({ "driver": driver, "name": "a".repeat(32) })).unwrap();
+}

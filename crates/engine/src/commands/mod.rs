@@ -7,6 +7,7 @@ mod character;
 mod deformer;
 mod display;
 mod drawing;
+mod driver;
 mod effect;
 mod export;
 mod file;
@@ -181,6 +182,25 @@ const COMMANDS: &[Command] = &[
     Command { id: "effect.moveKey", title: "Move Keyframe", run: effect::move_key },
     Command { id: "effect.setEase", title: "Set Keyframe Ease", run: effect::set_ease },
     Command { id: "effect.setEnabled", title: "Switch Effect On or Off", run: effect::set_enabled },
+    Command { id: "driver.new", title: "Add Driver", run: driver::new },
+    Command { id: "driver.delete", title: "Delete Driver", run: driver::delete },
+    Command { id: "driver.rename", title: "Rename Driver", run: driver::rename },
+    Command { id: "driver.setExpressions", title: "Set Driver Expressions", run: driver::set_expressions },
+    Command { id: "driver.setPreset", title: "Use Driver Preset", run: driver::set_preset },
+    Command { id: "driver.addInput", title: "Add Driver Input", run: driver::add_input },
+    Command { id: "driver.connect", title: "Wire Driver Input", run: driver::connect },
+    Command { id: "driver.removeInput", title: "Remove Driver Input", run: driver::remove_input },
+    Command { id: "driver.renameInput", title: "Rename Driver Input", run: driver::rename_input },
+    Command { id: "driver.addParameter", title: "Add Driver Parameter", run: driver::add_parameter },
+    Command { id: "driver.removeParameter", title: "Remove Driver Parameter", run: driver::remove_parameter },
+    Command { id: "driver.renameParameter", title: "Rename Driver Parameter", run: driver::rename_parameter },
+    Command { id: "driver.set", title: "Set Driver Parameter", run: driver::set },
+    Command { id: "driver.setKey", title: "Add Driver Keyframe", run: driver::set_key },
+    Command { id: "driver.removeKey", title: "Remove Driver Keyframe", run: driver::remove_key },
+    Command { id: "driver.moveKey", title: "Move Driver Keyframe", run: driver::move_key },
+    Command { id: "driver.setEase", title: "Set Driver Keyframe Ease", run: driver::set_ease },
+    Command { id: "driver.setEnabled", title: "Switch Driver On or Off", run: driver::set_enabled },
+    Command { id: "driver.bake", title: "Bake Driver into Keys", run: driver::bake },
     Command { id: "effect.setParent", title: "Wire a Transform into a Port", run: effect::set_parent },
     Command { id: "library.list", title: "List Library Folder", run: library::list },
     Command { id: "library.newFolder", title: "New Library Folder", run: library::new_folder },
@@ -378,6 +398,7 @@ fn name_is_free(shot: &Shot, name: &str, own: Option<u64>) -> Result<()> {
     let composites = composites.chain(shot.groups.iter().map(|g| ("a group", g.id.0, &g.name)));
     let composites = composites.chain(shot.effects.iter().map(|e| ("an effect", e.id.0, &e.name)));
     let composites = composites.chain(shot.displays.iter().map(|d| ("a display", d.id.0, &d.name)));
+    let composites = composites.chain(shot.drivers.iter().map(|d| ("a driver", d.id.0, &d.name)));
     match layers.chain(pegs).chain(composites).find(|(_, id, taken)| Some(*id) != own && *taken == name) {
         Some((kind, ..)) => invalid(format!("the shot already has {kind} named `{name}`")),
         None => Ok(()),

@@ -210,6 +210,8 @@ pub(super) fn delete(s: &mut Session, params: Value) -> Result<Value> {
         shot.pegs.retain(|p| p.id != peg);
         shot.places.remove(&peg.0);
         shot.reparent(peg, parent);
+        // Its driver goes with it, and a driver that read it reads nothing there.
+        shot.drivers_forget(peg);
         // A deformer it was wired into lets it go: an IK goal stays where it was set, and a
         // start or an end where its own pose has it.
         for chain in &mut shot.deformers {
@@ -248,7 +250,7 @@ pub(super) fn set_parent(s: &mut Session, params: Value) -> Result<Value> {
         if let Some(peg) = p.peg_mut(PegId(peg)) {
             peg.parent = parent;
         }
-        Ok(())
+        super::driver::no_loop(p, PegId(peg))
     })?;
     Ok(Value::Null)
 }

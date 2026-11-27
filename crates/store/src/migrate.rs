@@ -42,6 +42,8 @@ pub(crate) fn to_current(version: i64, mut document: Value) -> Value {
     if version < 54 {
         groups_fold_their_rows_too(&mut document);
     }
+    // Version 63 has a shot's Driver nodes (`drivers`, plan §8.8). A shot without them has
+    // none.
     // Version 62 has a shot's retake notes (`notes`, plan §9.6). A shot without them has none.
     // Version 61 lets a key end a cycle of keyframes (`cycle`), repeated after it. A key
     // without one ends none.

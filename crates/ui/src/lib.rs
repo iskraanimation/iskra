@@ -457,6 +457,22 @@ pub struct IskraApp {
     /// A number of an effect node that is being dragged or typed in Properties: the node, the
     /// parameter, and the value so far. The project gets it when it is let go.
     effect_edit: Option<(iskra_model::EffectId, String, f64)>,
+    /// A driver's expressions as they are typed in Properties, before they are set (plan §8.8).
+    driver_text: Option<(iskra_model::DriverId, String)>,
+    /// A driver's parameter being dragged or typed in Properties: the project gets it when it
+    /// is let go.
+    driver_edit: Option<(iskra_model::DriverId, String, f64)>,
+    /// An input's or a parameter's name being typed: the driver, whether it is an input's, the
+    /// name it has, and the name so far.
+    driver_naming: Option<(iskra_model::DriverId, bool, String, String)>,
+    /// The name a driver's expressions are being saved as a preset under.
+    driver_saving: Option<(iskra_model::DriverId, String)>,
+    /// What Properties last showed a driven peg's driver add, value by value.
+    #[cfg(test)]
+    driven_shown: Vec<(iskra_model::Driven, f64)>,
+    /// Where a driver's *Set* button was last drawn.
+    #[cfg(test)]
+    driver_set_button: Option<egui::Rect>,
     /// A colour of an effect node that is being picked in Properties, as sRGB with how solid:
     /// the project gets it when the pointer is let go.
     colour_edit: Option<(iskra_model::EffectId, String, [u8; 4])>,
@@ -967,6 +983,14 @@ impl IskraApp {
             applying_template: None,
             lens_edit: None,
             effect_edit: None,
+            driver_text: None,
+            driver_edit: None,
+            driver_naming: None,
+            driver_saving: None,
+            #[cfg(test)]
+            driven_shown: Vec::new(),
+            #[cfg(test)]
+            driver_set_button: None,
             colour_edit: None,
             text_edit: None,
             curves_edit: None,
@@ -1730,6 +1754,10 @@ impl IskraApp {
             of("layer.delete", "layer", &|id| shot.layer(LayerId(id)).is_some()),
             of("peg.delete", "peg", &|id| shot.peg(PegId(id)).is_some()),
             of("composite.delete", "composite", &|id| shot.composite(iskra_model::CompositeId(id)).is_some()),
+            // Last, so that one whose peg goes too is not deleted twice: it went with the peg.
+            of("driver.delete", "driver", &|id| {
+                shot.driver(iskra_model::DriverId(id)).is_some() && !nodes.contains(&shot.driver(iskra_model::DriverId(id)).map_or(0, |driver| driver.drives.0))
+            }),
         ]
         .concat()
     }
@@ -1757,7 +1785,7 @@ impl IskraApp {
             "peg.removeKey" | "deformer.removeKey" | "effect.removeKey" | "sound.delete" => self.picked_removals(),
             "camera.setKey" if params["remove"] == json!(true) => self.picked_removals(),
             "shot.delete" if self.page == Page::Storyboard => self.picked_removals(),
-            "layer.delete" | "peg.delete" | "effect.delete" | "composite.delete" | "deformer.delete" => self.picked_deletes(),
+            "layer.delete" | "peg.delete" | "effect.delete" | "composite.delete" | "deformer.delete" | "driver.delete" => self.picked_deletes(),
             _ => return Vec::new(),
         };
         // Only where what was asked is one of several that are picked.
@@ -1859,6 +1887,9 @@ impl IskraApp {
             }
             if let Some(effect) = id("effect") {
                 return Some(timeline::Keyed::Effect(iskra_model::EffectId(effect), None));
+            }
+            if let Some(driver) = id("driver") {
+                return Some(timeline::Keyed::Driver(iskra_model::DriverId(driver), None));
             }
             if let Some(shot) = id("camera") {
                 return Some(timeline::Keyed::Lens(iskra_model::ShotId(shot)));
@@ -2038,6 +2069,7 @@ impl IskraApp {
                 ("deformer.setPose", timeline::Keyed::Bones(bones, ..)) => named("deformer") == Some(bones.0),
                 ("camera.setLens", timeline::Keyed::Lens(shot)) => lens == Some(shot.0),
                 ("effect.set", timeline::Keyed::Effect(effect, _)) => named("effect") == Some(effect.0),
+                ("driver.set", timeline::Keyed::Driver(driver, _)) => named("driver") == Some(driver.0),
                 _ => false,
             })
             .map(|(_, frame)| *frame)
@@ -8791,6 +8823,11 @@ impl IskraApp {
             ui.weak("Select a peg, a layer that is on one or that bones bend, or pick an effect node, to see how its values change over the shot.");
             return;
         };
+        // A driven peg's values as they come out with its driver, frame by frame.
+        self.curves.driven = match shot.driver_of(peg.id).filter(|driver| !driver.off) {
+            Some(_) => (0..shot.duration.min(5000)).map(|frame| shot.pose(peg, frame)).collect(),
+            None => Vec::new(),
+        };
         let actions = self.curves.show(ui, shot.duration, peg, self.tools.frame);
         self.curve_actions(ui.ctx(), actions);
     }
@@ -9353,6 +9390,277 @@ impl IskraApp {
         }
     }
 
+    /// The presets the user saved, in the *Drivers* folder of their Scripts folder (plan
+    /// §8.8), by their names; a file that is not one is left out.
+    fn user_driver_presets(&self) -> Vec<iskra_model::DriverPreset> {
+        let Some(folder) = self.scripts_folder().map(|scripts| scripts.join("drivers")) else { return Vec::new() };
+        let Ok(listed) = std::fs::read_dir(&folder) else { return Vec::new() };
+        let mut files: Vec<_> = listed.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|e| e == "json")).collect();
+        files.sort();
+        files.iter().filter_map(|path| serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()).collect()
+    }
+
+    /// Save a driver's expressions, inputs and parameters as a preset of the user's, called
+    /// `name`, in the *Drivers* folder: what the preset list then has after those that come
+    /// with Iskra.
+    fn save_driver_preset(&mut self, driver: &iskra_model::Driver, name: &str) {
+        let Some(folder) = self.scripts_folder().map(|scripts| scripts.join("drivers")) else {
+            self.error = Some("There is no Scripts folder to save the preset in".to_string());
+            return;
+        };
+        let preset = iskra_model::DriverPreset {
+            name: name.to_string(),
+            hint: String::new(),
+            expressions: driver.expressions.text().to_string(),
+            inputs: driver.inputs.iter().map(|input| input.name.clone()).collect(),
+            parameters: driver.parameters.iter().map(|p| iskra_model::PresetParameter { name: p.name.clone(), value: p.value }).collect(),
+        };
+        let file: String = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect();
+        let path = folder.join(format!("{}.json", file.trim()));
+        let written = std::fs::create_dir_all(&folder).and_then(|_| std::fs::write(&path, serde_json::to_string_pretty(&preset).unwrap_or_default()));
+        match written {
+            Ok(()) => self.log.say(format!("drivers: the preset {name} saved to {}", path.display())),
+            Err(why) => self.error = Some(format!("The preset could not be saved to {}: {why}", path.display())),
+        }
+    }
+
+    /// A Driver node picked alone (plan §8.8): its preset, its expressions in an editor, the
+    /// pegs wired into its inputs, and its parameters, which can be keyed.
+    fn driver_properties(&mut self, ui: &mut egui::Ui, shot: &Shot, driver: &iskra_model::Driver) {
+        let (id, frame) = (driver.id, self.panel_frame());
+        let theme = Theme::of(ui.ctx());
+        let mut asked: Vec<(&'static str, Value)> = Vec::new();
+        ui.strong(&driver.name);
+        let peg = shot.peg(driver.drives).map_or("a peg that is gone", |peg| peg.name.as_str());
+        ui.weak(format!("Drives {peg}: what it gives is added to the peg's own values"));
+        ui.add_space(4.0);
+        ui.separator();
+        let mut on = !driver.off;
+        if form::row(ui, "", |ui| ui.checkbox(&mut on, "On")).on_hover_text("Off, it adds nothing to its peg, here and in a render").changed() {
+            asked.push(("driver.setEnabled", json!({ "driver": id.0, "enabled": on })));
+        }
+        // The presets: those that come with Iskra, then the user's.
+        form::row(ui, "Preset", |ui| {
+            let shown = driver.preset.as_deref().unwrap_or("Its own");
+            egui::ComboBox::from_id_salt(("driver preset", id.0)).selected_text(shown).width(180.0).show_ui(ui, |ui| {
+                for preset in iskra_model::driver_presets() {
+                    let row = ui.selectable_label(driver.preset.as_deref() == Some(preset.name.as_str()), &preset.name).on_hover_text(&preset.hint);
+                    if row.clicked() {
+                        asked.push(("driver.setPreset", json!({ "driver": id.0, "preset": preset.name })));
+                    }
+                }
+                let own = self.user_driver_presets();
+                if !own.is_empty() {
+                    ui.separator();
+                }
+                for preset in own {
+                    if ui.selectable_label(driver.preset.as_deref() == Some(preset.name.as_str()), &preset.name).clicked() {
+                        asked.push(("driver.setPreset", json!({ "driver": id.0, "preset": preset })));
+                    }
+                }
+            });
+        });
+        ui.add_space(4.0);
+        // The expressions, as they are typed: set when they are applied, with Ctrl+Enter or
+        // the button, if they parse and read only what the driver has.
+        let set = driver.expressions.text().to_string();
+        let mut text = self.driver_text.as_ref().filter(|(of, _)| *of == id).map_or_else(|| set.clone(), |(_, text)| text.clone());
+        let lines = text.lines().count().max(1) + usize::from(text.ends_with('\n'));
+        let font = egui::FontId::monospace(12.0);
+        let mut edited = false;
+        let mut applied = false;
+        ui.horizontal_top(|ui| {
+            let numbers: String = (1..=lines.max(6)).map(|n| format!("{n}\n")).collect();
+            ui.add(egui::Label::new(egui::RichText::new(numbers.trim_end()).font(font.clone()).color(theme.text_muted)).selectable(false));
+            let colour = theme.text;
+            let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
+                // Lines are not wrapped, so that each stays beside its number.
+                let job = egui::text::LayoutJob::simple(buffer.as_str().to_string(), egui::FontId::monospace(12.0), colour, f32::INFINITY);
+                ui.fonts_mut(|fonts| fonts.layout_job(job))
+            };
+            let editor = egui::TextEdit::multiline(&mut text)
+                .code_editor()
+                .desired_rows(6)
+                .desired_width(f32::INFINITY)
+                .layouter(&mut layouter)
+                .hint_text("rotation = parent.travelled / radius * 180 / PI");
+            let editor = egui::ScrollArea::horizontal().id_salt(("driver text", id.0)).show(ui, |ui| ui.add(editor)).inner;
+            let editor = editor.on_hover_text(
+                "x, y, rotation, scaleX, scaleY, skew or depth = …, one a line, added to the peg's own; let names a number. Ctrl+Enter (⌘+Enter) sets them",
+            );
+            edited = editor.changed();
+            applied = editor.has_focus() && ui.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Enter)));
+        });
+        if edited {
+            self.driver_text = Some((id, text.clone()));
+        }
+        // What is wrong with them as typed, said at once.
+        let checked = iskra_model::Expressions::parse(&text).map(|parsed| {
+            let mut trial = driver.clone();
+            trial.expressions = parsed;
+            trial.missing()
+        });
+        let changed = text != set;
+        match &checked {
+            Err(why) => drop(ui.colored_label(theme.danger, why.to_string())),
+            Ok(missing) if !missing.is_empty() => {
+                let names: Vec<String> = missing.iter().map(|name| format!("`{name}`")).collect();
+                ui.colored_label(theme.danger, format!("They read {}, which it has no input or parameter for: add it below", names.join(", ")));
+            }
+            Ok(_) if shot.amounts(driver, frame).failed && !changed => {
+                ui.colored_label(theme.danger, "On this frame a value comes to no number, and adds nothing: a division by zero, or an input with no peg");
+            }
+            Ok(_) => {}
+        }
+        let fine = checked.as_ref().is_ok_and(Vec::is_empty);
+        ui.horizontal(|ui| {
+            let button = ui.add_enabled(changed && fine, egui::Button::new("Set")).on_hover_text("Set the expressions as they are typed: Ctrl+Enter (⌘+Enter)");
+            #[cfg(test)]
+            {
+                self.driver_set_button = Some(button.rect);
+            }
+            if button.clicked() {
+                applied = true;
+            }
+            if ui.add_enabled(changed, egui::Button::new("Revert")).on_hover_text("Back to the expressions the driver has").clicked() {
+                self.driver_text = None;
+            }
+        });
+        if applied && changed && fine {
+            asked.push(("driver.setExpressions", json!({ "driver": id.0, "expressions": text })));
+            self.driver_text = None;
+        }
+        ui.add_space(4.0);
+        ui.separator();
+        // A name of an input or a parameter, which is typed in place.
+        let naming = |app: &mut IskraApp, ui: &mut egui::Ui, input: bool, name: &str, asked: &mut Vec<(&'static str, Value)>| {
+            let mut now = app
+                .driver_naming
+                .as_ref()
+                .filter(|(of, is_input, was, _)| *of == id && *is_input == input && was == name)
+                .map_or(name.to_string(), |(.., now)| now.clone());
+            let field = ui.add(egui::TextEdit::singleline(&mut now).desired_width(90.0).font(egui::FontId::monospace(12.0)));
+            if field.changed() {
+                app.driver_naming = Some((id, input, name.to_string(), now.clone()));
+            }
+            if field.lost_focus() && now != name && app.driver_naming.take().is_some() {
+                let (command, key) = if input { ("driver.renameInput", "input") } else { ("driver.renameParameter", "parameter") };
+                asked.push((command, json!({ "driver": id.0, key: name, "name": now })));
+            }
+        };
+        ui.strong("Inputs")
+            .on_hover_text("The pegs it reads, each by its name here: wire one in from the node view, or pick it. `parent` is always its peg's parent");
+        egui::Grid::new(("driver inputs", id.0)).num_columns(3).show(ui, |ui| {
+            for input in &driver.inputs {
+                naming(self, ui, true, &input.name, &mut asked);
+                let wired = input.peg.and_then(|peg| shot.peg(peg)).map_or("Nothing", |peg| peg.name.as_str());
+                egui::ComboBox::from_id_salt(("driver input", id.0, &input.name)).selected_text(wired).width(120.0).show_ui(ui, |ui| {
+                    if ui.selectable_label(input.peg.is_none(), "Nothing").clicked() {
+                        asked.push(("driver.connect", json!({ "driver": id.0, "input": input.name })));
+                    }
+                    // Not one that would have its peg move itself.
+                    for peg in shot.pegs.iter().filter(|peg| !shot.driver_loops(driver.drives, peg.id)) {
+                        if ui.selectable_label(input.peg == Some(peg.id), &peg.name).clicked() {
+                            asked.push(("driver.connect", json!({ "driver": id.0, "input": input.name, "peg": peg.id.0 })));
+                        }
+                    }
+                });
+                let read = driver.expressions.inputs().contains(&input.name);
+                let hint = if read { "The expressions read it: take it out of them first" } else { "Take this input away" };
+                if ui.add_enabled(!read, egui::Button::new("✕")).on_hover_text(hint).on_disabled_hover_text(hint).clicked() {
+                    asked.push(("driver.removeInput", json!({ "driver": id.0, "input": input.name })));
+                }
+                ui.end_row();
+            }
+        });
+        let free = |stem: &str| {
+            (1..)
+                .map(|n| if n == 1 { stem.to_string() } else { format!("{stem}{n}") })
+                .find(|name| driver.input(name).is_none() && driver.parameter(name).is_none())
+                .unwrap_or_default()
+        };
+        if ui.button("+ Input").on_hover_text("Another input, with nothing wired into it yet").clicked() {
+            asked.push(("driver.addInput", json!({ "driver": id.0, "name": free("input") })));
+        }
+        ui.add_space(4.0);
+        ui.strong("Parameters").on_hover_text("Numbers the expressions read by their names: a wheel's radius, a lag. Each can be keyed");
+        let mut busy = false;
+        egui::Grid::new(("driver parameters", id.0)).num_columns(4).show(ui, |ui| {
+            for parameter in &driver.parameters {
+                naming(self, ui, false, &parameter.name, &mut asked);
+                let now = parameter.at(frame);
+                let mut value = self.driver_edit.as_ref().filter(|(of, name, _)| *of == id && *name == parameter.name).map_or(now, |(.., value)| *value);
+                let field = ui.add(egui::DragValue::new(&mut value).speed(0.1).max_decimals(3));
+                if value != now {
+                    self.driver_edit = Some((id, parameter.name.clone(), value));
+                }
+                busy |= field.dragged() || field.has_focus();
+                let keyed = parameter.track.keys().iter().any(|key| key.frame == frame);
+                let hint = "Key this number on the frame that is showing. Once keyed, changing it on another frame keys it there";
+                if ui.selectable_label(keyed, if keyed { "Remove Keyframe" } else { "Add Keyframe" }).on_hover_text(hint).clicked() {
+                    let command = if keyed { "driver.removeKey" } else { "driver.setKey" };
+                    asked.push((command, json!({ "driver": id.0, "parameter": parameter.name, "frame": frame })));
+                }
+                let read = driver.expressions.parameters().contains(&parameter.name);
+                let hint = if read { "The expressions read it: take it out of them first" } else { "Take this parameter away" };
+                if ui.add_enabled(!read, egui::Button::new("✕")).on_hover_text(hint).on_disabled_hover_text(hint).clicked() {
+                    asked.push(("driver.removeParameter", json!({ "driver": id.0, "parameter": parameter.name })));
+                }
+                ui.end_row();
+            }
+        });
+        if ui.button("+ Parameter").on_hover_text("Another number for the expressions to read").clicked() {
+            asked.push(("driver.addParameter", json!({ "driver": id.0, "name": free("value") })));
+        }
+        ui.add_space(4.0);
+        ui.separator();
+        // Saved as a preset of the user's, under a name typed in place.
+        match self.driver_saving.as_mut().filter(|(of, _)| *of == id) {
+            Some((_, name)) => {
+                let (mut save, mut cancel) = (false, false);
+                ui.horizontal(|ui| {
+                    let field = ui.add(egui::TextEdit::singleline(name).desired_width(140.0).hint_text("The preset's name"));
+                    save = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    save |= ui.button("Save").clicked();
+                    cancel = ui.button("Cancel").clicked();
+                });
+                if cancel {
+                    self.driver_saving = None;
+                }
+                if let Some((_, name)) = self.driver_saving.take_if(|(_, name)| save && !name.trim().is_empty()) {
+                    self.save_driver_preset(driver, name.trim());
+                }
+            }
+            None => {
+                ui.horizontal(|ui| {
+                    let hint = "Keep these expressions, inputs and parameters as a preset of your own, listed in every project";
+                    if ui.button("Save as Preset…").on_hover_text(hint).clicked() {
+                        self.driver_saving = Some((id, driver.preset.clone().unwrap_or_else(|| driver.name.clone())));
+                    }
+                    let hint = "Key the peg on every frame of the shot with what the driver makes it, and take the driver away";
+                    if ui.button("Bake into Keys").on_hover_text(hint).clicked() {
+                        asked.push(("driver.bake", json!({ "driver": id.0 })));
+                    }
+                });
+            }
+        }
+        for (command, params) in asked {
+            self.run(command, params);
+        }
+        if busy {
+            return;
+        }
+        // Let go, the number that was dragged or typed goes to the project: keyed on the frame
+        // that is showing, for one that has keys.
+        if let Some((of, name, value)) = self.driver_edit.take_if(|(of, ..)| *of == id) {
+            let mut params = json!({ "driver": of.0, "parameter": name, "value": value });
+            if driver.parameter(&name).is_some_and(|parameter| !parameter.track.is_empty()) {
+                params["frame"] = json!(frame);
+            }
+            self.run("driver.set", params);
+        }
+    }
+
     /// The selected peg in numbers. A value is dragged or typed; the viewport follows while
     /// it changes, and the project gets it once, when it is let go.
     fn node_properties(&mut self, ui: &mut egui::Ui) {
@@ -9366,6 +9674,12 @@ impl IskraApp {
         match picked {
             Some(effect) => return self.effect_properties(ui, effect),
             None => (self.effect_edit, self.colour_edit, self.text_edit, self.curves_edit) = (None, None, None, None),
+        }
+        // So is a driver.
+        let driver = self.picked.iter().next().filter(|_| self.picked.len() == 1).and_then(|id| shot.driver(iskra_model::DriverId(*id)));
+        match driver {
+            Some(driver) => return self.driver_properties(ui, shot, driver),
+            None => (self.driver_text, self.driver_edit, self.driver_naming, self.driver_saving) = (None, None, None, None),
         }
         // Several pegs picked together: their values at once, those they share shown, those
         // they don't as a dash, and one changed changed on all of them.
@@ -9682,6 +9996,44 @@ impl IskraApp {
                 ui.end_row();
             }
         });
+        // Driven, what its driver adds on the frame that is showing, and what it comes to: the
+        // values above are its own, which the driver adds to (plan §8.8).
+        if let Some(driver) = shot.driver_of(peg.id).filter(|driver| !driver.off) {
+            let (amounts, total) = (shot.amounts(driver, frame), shot.pose(peg, frame));
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.strong("ƒ").on_hover_text("Driven: a Driver node adds to these values on every frame");
+                ui.weak(format!("Driven by {}", driver.name));
+                if ui.small_button("Pick").on_hover_text("Pick the driver, to change its expressions").clicked() {
+                    self.picked = std::iter::once(driver.id.0).collect();
+                }
+            });
+            #[cfg(test)]
+            {
+                self.driven_shown = iskra_model::Driven::ALL.into_iter().filter_map(|driven| Some((driven, amounts.of(driven)?))).collect();
+            }
+            egui::Grid::new("peg driven").num_columns(3).show(ui, |ui| {
+                for driven in iskra_model::Driven::ALL {
+                    let Some(amount) = amounts.of(driven) else { continue };
+                    let (name, value) = match driven {
+                        iskra_model::Driven::X => ("Position X", total.position[0]),
+                        iskra_model::Driven::Y => ("Position Y", total.position[1]),
+                        iskra_model::Driven::Rotation => ("Rotation", total.rotation),
+                        iskra_model::Driven::ScaleX => ("Scale X", total.scale[0]),
+                        iskra_model::Driven::ScaleY => ("Scale Y", total.scale[1]),
+                        iskra_model::Driven::Skew => ("Skew", total.skew),
+                        iskra_model::Driven::Depth => ("Depth", total.depth),
+                    };
+                    form::name(ui, name);
+                    ui.weak(format!("{amount:+.2}"));
+                    ui.label(format!("= {value:.2}"));
+                    ui.end_row();
+                }
+            });
+            if amounts.failed {
+                ui.colored_label(Theme::of(ui.ctx()).danger, "On this frame a value it gives comes to no number, and adds nothing");
+            }
+        }
         // Scaled both ways alike, the value that was not changed goes by as much as the one that was.
         if self.tools.uniform {
             for (changed, other) in [(0, 1), (1, 0)] {
@@ -21865,6 +22217,204 @@ mod tests {
         click(&mut h, view.left_top() + egui::vec2(6.0, 6.0));
         h.frame(vec![]);
         assert_eq!((h.app.nodes.outlined.len(), h.app.picked.len(), h.app.layer, &h.app.error), (0, 0, Some(layer), &None));
+    }
+
+    #[test]
+    fn a_driver_is_a_box_in_the_node_view_a_pegs_wire_dragged_onto_it_is_read_by_it() {
+        use crate::nodes::Item;
+        let mut h = Harness::new();
+        run(&mut h, "panel.nodeView");
+        let peg = |h: &mut Harness, name: &str, parent: Option<u64>| {
+            h.app.run_for("peg.new", json!({ "name": name, "parent": parent })).unwrap()["id"].as_u64().unwrap()
+        };
+        let car = peg(&mut h, "Car-P", None);
+        let wheel = peg(&mut h, "Wheel-P", Some(car));
+        let driver = h.app.run_for("driver.new", json!({ "peg": wheel })).unwrap()["id"].as_u64().unwrap();
+        let driver = iskra_model::DriverId(driver);
+        h.frame(vec![]);
+        h.frame(vec![]);
+        let shot = |h: &Harness| h.app.session.project().shots[0].clone();
+        let at = |h: &Harness, item: Item| h.app.nodes.boxes.iter().find(|(other, _)| *other == item).expect("the node has a box").1;
+        let wired = |h: &Harness, from: Item, to: Item| h.app.nodes.wire_ends.iter().any(|(a, b, ..)| *a == from && *b == to);
+        // Its wire goes into the side of its peg.
+        assert!(wired(&h, Item::Driver(driver), Item::Peg(PegId(wheel))));
+        assert!(at(&h, Item::Driver(driver)).right() <= at(&h, Item::Peg(PegId(wheel))).left() + 1.0, "beside its peg, at its left");
+        // The car's wire dragged from its port onto the driver: the driver reads it as `car`.
+        let (from, onto) = (at(&h, Item::Peg(PegId(car))).center_bottom(), at(&h, Item::Driver(driver)).center());
+        h.drag_between(from, onto);
+        let input = shot(&h).driver(driver).unwrap().inputs.first().cloned();
+        assert_eq!((input.map(|input| (input.name, input.peg)), &h.app.error), (Some(("car".to_string(), Some(PegId(car)))), &None));
+        assert_eq!(h.app.session.history().undo_label(), Some("Add Driver Input"));
+        h.frame(vec![]);
+        assert!(wired(&h, Item::Peg(PegId(car)), Item::Driver(driver)));
+        // Dragged, it stays where it is put; clicked, it is picked; *Delete Picked Nodes* takes
+        // it away.
+        let before = at(&h, Item::Driver(driver)).center();
+        h.drag_between(before, before + egui::vec2(-30.0, -20.0));
+        h.frame(vec![]);
+        assert_eq!((h.app.session.history().undo_label(), &h.app.error), (Some("Move Node"), &None));
+        let on = at(&h, Item::Driver(driver)).center();
+        click(&mut h, on);
+        assert_eq!(h.app.picked.iter().copied().collect::<Vec<_>>(), [driver.0]);
+        run(&mut h, "node.deletePicked");
+        assert!(shot(&h).drivers.is_empty() && h.app.error.is_none(), "{:?}", h.app.error);
+        h.frame(vec![]);
+        assert!(!h.app.nodes.boxes.iter().any(|(item, _)| *item == Item::Driver(driver)));
+    }
+
+    #[test]
+    fn a_driver_is_set_in_properties_from_a_preset_its_expressions_and_its_parameters() {
+        let mut h = Harness::new();
+        let folder = tempfile::tempdir().unwrap();
+        h.app.prefs_file = Some((folder.path().join("prefs.json"), Preferences::default()));
+        let peg = |h: &mut Harness, name: &str, parent: Option<u64>| {
+            h.app.run_for("peg.new", json!({ "name": name, "parent": parent })).unwrap()["id"].as_u64().unwrap()
+        };
+        let car = peg(&mut h, "Car-P", None);
+        let wheel = peg(&mut h, "Wheel-P", Some(car));
+        h.app.run("peg.setTransform", json!({ "peg": car, "frame": 0, "position": [0.0, 0.0], "animate": true }));
+        h.app.run("peg.setTransform", json!({ "peg": car, "frame": 10, "position": [100.0, 0.0], "animate": true }));
+        let id = iskra_model::DriverId(h.app.run_for("driver.new", json!({ "peg": wheel })).unwrap()["id"].as_u64().unwrap());
+        let driver = |h: &Harness| h.app.session.project().shots[0].driver(id).unwrap().clone();
+        let turned = |h: &Harness, frame: u32| {
+            let shot = &h.app.session.project().shots[0];
+            shot.pose(shot.peg(PegId(wheel)).unwrap(), frame).rotation
+        };
+        h.app.picked = [id.0].into();
+        h.frame(vec![]);
+        // A preset, from the list.
+        h.app.run("driver.setPreset", json!({ "driver": id.0, "preset": "Roll with Parent" }));
+        h.frame(vec![]);
+        assert!((turned(&h, 10) - 100.0 / 50.0 * 180.0 / std::f64::consts::PI).abs() < 1e-9);
+        // Expressions typed that read what it has not got are not set, and can't be.
+        h.app.driver_text = Some((id, "rotation = parent.x * speed".to_string()));
+        h.frame(vec![]);
+        let set = h.app.driver_set_button.expect("the Set button");
+        click(&mut h, set.center());
+        assert_eq!((driver(&h).expressions.text().contains("travelled"), h.app.driver_text.is_some()), (true, true));
+        // Typed so that they read what it has, Set sets them, as one step.
+        h.app.driver_text = Some((id, "rotation = parent.x / radius".to_string()));
+        h.frame(vec![]);
+        let set = h.app.driver_set_button.expect("the Set button");
+        click(&mut h, set.center());
+        assert_eq!(
+            (driver(&h).expressions.text(), h.app.session.history().undo_label(), &h.app.error),
+            ("rotation = parent.x / radius", Some("Set Driver Expressions"), &None)
+        );
+        assert_eq!((turned(&h, 10), driver(&h).preset.as_deref()), (2.0, None), "its own now, no preset's");
+        // A parameter dragged, let go, is the project's.
+        h.app.driver_edit = Some((id, "radius".to_string(), 25.0));
+        h.frame(vec![]);
+        assert_eq!((turned(&h, 10), h.app.session.history().undo_label()), (4.0, Some("Set Driver Parameter")));
+        // Saved as a preset, it is listed with the user's.
+        h.app.save_driver_preset(&driver(&h), "My Roll");
+        let own = h.app.user_driver_presets();
+        assert_eq!((own.len(), own[0].name.as_str(), own[0].expressions.as_str(), &h.app.error), (1, "My Roll", "rotation = parent.x / radius", &None));
+        assert_eq!(own[0].parameters[0].value, 25.0);
+        // The peg it drives says so in Properties: what it adds on the frame showing.
+        h.app.picked.clear();
+        h.app.tools.frame = 10;
+        let ctx = h.ctx.clone();
+        h.app.timeline_actions(&ctx, vec![Action::Select { node: Some(Node::Peg(PegId(wheel))), frame: 10 }]);
+        h.frame(vec![]);
+        assert_eq!(h.app.driven_shown, [(iskra_model::Driven::Rotation, 4.0)]);
+    }
+
+    #[test]
+    fn a_drivers_keyed_parameters_have_a_row_on_the_timeline_and_its_peg_a_dashed_curve() {
+        let mut h = Harness::new();
+        let peg = |h: &mut Harness, name: &str, parent: Option<u64>| {
+            h.app.run_for("peg.new", json!({ "name": name, "parent": parent })).unwrap()["id"].as_u64().unwrap()
+        };
+        // Alone, so that its driver's row is among those the timeline shows.
+        let wheel = peg(&mut h, "Wheel-P", None);
+        let made = json!({ "peg": wheel, "expressions": "rotation = amount", "parameters": [{ "name": "amount", "value": 0.0 }] });
+        let id = iskra_model::DriverId(h.app.run_for("driver.new", made).unwrap()["id"].as_u64().unwrap());
+        h.frame(vec![]);
+        // With no keys it has no row.
+        assert!(h.app.timeline.driver_names.is_empty());
+        h.app.run("driver.setKey", json!({ "driver": id.0, "frame": 0 }));
+        h.app.run("driver.set", json!({ "driver": id.0, "parameter": "amount", "value": 90.0, "frame": 10 }));
+        h.frame(vec![]);
+        let named = h.app.timeline.driver_names.iter().find(|(of, _)| *of == id).expect("its row").1;
+        let mark = |h: &Harness, frame: u32| {
+            h.app.timeline.value_key_marks.iter().find(|(of, at, _)| *of == timeline::Keyed::Driver(id, None) && *at == frame).map(|(.., mark)| *mark)
+        };
+        // Its row has its keys, beside its name; a click on one goes to it and picks the
+        // driver, which Properties then shows.
+        assert!((mark(&h, 0).expect("its key on frame 0").center().y - named.center().y).abs() < 2.0);
+        let on = mark(&h, 0).unwrap().center();
+        click(&mut h, on);
+        assert_eq!((h.app.tools.frame, h.app.picked.iter().copied().collect::<Vec<_>>()), (0, vec![id.0]));
+        // A key dragged along it moves the parameters' keys.
+        let from = mark(&h, 10).expect("its key on frame 10").center();
+        let to = from + egui::vec2(2.0 * h.app.timeline.frame_width(), 0.0);
+        h.drag_between(from, to);
+        let keys: Vec<u32> = h.app.session.project().shots[0].driver(id).unwrap().parameters[0].track.keys().iter().map(|key| key.frame).collect();
+        assert_eq!((keys, &h.app.error), (vec![0, 12], &None));
+        // Opened by its `+`, each parameter has a row of its own, whose keys are its alone.
+        h.app.run("driver.addParameter", json!({ "driver": id.0, "name": "other", "value": 1.0 }));
+        h.app.run("driver.setKey", json!({ "driver": id.0, "parameter": "other", "frame": 4 }));
+        h.frame(vec![]);
+        let plus = h.app.timeline.openers.iter().find(|(node, _)| *node == id.0).expect("the driver has a +").1;
+        click(&mut h, plus.center());
+        h.frame(vec![]);
+        let row_of = |name: &str| timeline::Keyed::Driver(id, timeline::Word::of(name));
+        let marks = |h: &Harness, name: &str| {
+            h.app.timeline.value_key_marks.iter().filter(|(of, ..)| *of == row_of(name)).map(|(_, frame, _)| *frame).collect::<Vec<_>>()
+        };
+        assert_eq!((marks(&h, "amount"), marks(&h, "other")), (vec![0, 12], vec![4]));
+        // A key of a row moved is that parameter's alone: what the row's drag asks for. The rows
+        // are below what the harness's timeline shows, so it is asked for here.
+        let moved = row_of("amount").params(json!({ "from": 12, "to": 14 }));
+        assert_eq!(moved, json!({ "driver": id.0, "parameter": "amount", "from": 12, "to": 14 }));
+        h.app.run("driver.moveKey", moved);
+        let frames = |h: &Harness, at: usize| {
+            h.app.session.project().shots[0].driver(id).unwrap().parameters[at].track.keys().iter().map(|key| key.frame).collect::<Vec<_>>()
+        };
+        assert_eq!((frames(&h, 0), frames(&h, 1), &h.app.error), (vec![0, 14], vec![4], &None));
+        // The wheel's rotation curve has the driven value dashed beside its own.
+        h.app.picked.clear();
+        let ctx = h.ctx.clone();
+        h.app.timeline_actions(&ctx, vec![Action::Select { node: Some(Node::Peg(PegId(wheel))), frame: 0 }]);
+        run(&mut h, "panel.curves");
+        h.app.curves.curve = curves::Curve::Rotation;
+        h.frame(vec![]);
+        h.frame(vec![]);
+        assert!(h.app.curves.driven_drawn);
+        h.app.curves.curve = curves::Curve::Skew;
+        h.frame(vec![]);
+        assert!(!h.app.curves.driven_drawn, "only where the driver adds something");
+    }
+
+    #[test]
+    fn a_driver_is_found_by_the_search_on_the_peg_picked_and_its_box_says_when_it_fails() {
+        use crate::nodes::Item;
+        let mut h = Harness::new();
+        run(&mut h, "panel.nodeView");
+        let wheel = h.app.run_for("peg.new", json!({ "name": "Wheel-P" })).unwrap()["id"].as_u64().unwrap();
+        h.frame(vec![]);
+        h.frame(vec![]);
+        let shot = |h: &Harness| h.app.session.project().shots[0].clone();
+        let at = |h: &Harness, item: Item| h.app.nodes.boxes.iter().find(|(other, _)| *other == item).expect("the node has a box").1;
+        // With the peg picked, Enter over the view opens the search, which finds the Driver.
+        let on = at(&h, Item::Peg(PegId(wheel))).center();
+        click(&mut h, on);
+        let free = on + egui::vec2(-200.0, -60.0);
+        h.frame(vec![Event::PointerMoved(free)]);
+        press(&mut h, Modifiers::NONE, Key::Enter);
+        h.frame(vec![Event::Text("driver".to_string())]);
+        press(&mut h, Modifiers::NONE, Key::Enter);
+        h.frame(vec![]);
+        let made = shot(&h).driver_of(PegId(wheel)).map(|driver| driver.id).expect("a driver of the peg was made");
+        assert_eq!(h.app.session.history().undo_label(), Some("Add Driver"));
+        // Its expressions coming to no number on the frame showing, its box says so.
+        h.app.run("driver.setExpressions", json!({ "driver": made.0, "expressions": "x = 1 / 0" }));
+        h.frame(vec![]);
+        assert!(h.app.nodes.tags_said.contains(&(Item::Driver(made), "!".to_string())));
+        h.app.run("driver.setExpressions", json!({ "driver": made.0, "expressions": "x = 1" }));
+        h.frame(vec![]);
+        assert!(!h.app.nodes.tags_said.iter().any(|(item, _)| *item == Item::Driver(made)));
     }
 
     #[test]

@@ -572,6 +572,10 @@ impl Project {
     pub fn apply_template(&mut self, shot: ShotId, template: &Project, onto: Option<Node>, options: &ApplyOptions) -> Option<Applied> {
         let item = template.shots.first()?;
         let Plan { mut applied, pairs, made, under, composites, groups } = plan(self.shot(shot)?, item, onto, options);
+        // Where each of the template's pegs is listed, for what its driver does to be said there.
+        let mut listed_peg: HashMap<PegId, usize> =
+            pairs.iter().filter_map(|(from, _, listed)| if let Node::Peg(from) = from { Some((*from, *listed)) } else { None }).collect();
+        listed_peg.extend(made.iter().filter_map(|(from, listed)| if let Node::Peg(from) = from { Some((*from, *listed)) } else { None }));
         let by = options.frame.unwrap_or(0);
         // The template's skins as the project's of the same names, made where it has none.
         let like = self.skins_like(&template.palette);
@@ -706,6 +710,65 @@ impl Project {
             }
             if let Some(found) = applied.matches.get_mut(listed) {
                 found.note = (moved > 0).then(|| format!("{moved} {} restacked", if moved == 1 { "input" } else { "inputs" }));
+            }
+        }
+        // A driver of the template's goes onto the driver of the peg its own peg went onto,
+        // or is made there (plan §8.8): its expressions, its parameters with their keys, and
+        // its inputs wired to where the template's pegs went, else as the shot's had them.
+        for from in &item.drivers {
+            let Some(&onto) = placed.get(&from.drives) else { continue };
+            let mut parameters = from.parameters.clone();
+            for parameter in &mut parameters {
+                parameter.track = parameter.track.shifted(by);
+            }
+            let inputs = |own: Option<&crate::Driver>| -> Vec<crate::DriverInput> {
+                let wired =
+                    |input: &crate::DriverInput| input.peg.and_then(|peg| placed.get(&peg).copied()).or(own.and_then(|own| own.input(&input.name)?.peg));
+                from.inputs.iter().map(|input| crate::DriverInput { name: input.name.clone(), peg: wired(input) }).collect()
+            };
+            let said = match rig.drivers.iter_mut().find(|driver| driver.drives == onto) {
+                Some(own) => {
+                    let own = Arc::make_mut(own);
+                    let wired = inputs(Some(own));
+                    // Merged, the shot's keys stay and the template's go over them.
+                    let parameters = parameters.into_iter().map(|mut parameter| {
+                        if let (true, Some(had)) = (options.merge, own.parameter(&parameter.name)) {
+                            let mut track = had.track.clone();
+                            track.merge(&parameter.track);
+                            parameter.track = track;
+                        }
+                        parameter
+                    });
+                    let parameters: Vec<crate::DriverParameter> = parameters.collect();
+                    // What the shot's had besides stays, for anything else it reads.
+                    let kept: Vec<crate::DriverParameter> =
+                        own.parameters.iter().filter(|had| !parameters.iter().any(|p| p.name == had.name)).cloned().collect();
+                    let kept_inputs: Vec<crate::DriverInput> =
+                        own.inputs.iter().filter(|had| !wired.iter().any(|input| input.name == had.name)).cloned().collect();
+                    (own.expressions, own.preset, own.off) = (from.expressions.clone(), from.preset.clone(), from.off);
+                    own.parameters = parameters.into_iter().chain(kept).collect();
+                    own.inputs = wired.into_iter().chain(kept_inputs).collect();
+                    "its driver applied"
+                }
+                None => {
+                    let names: Vec<String> = rig.node_names().map(str::to_string).collect();
+                    let id = crate::DriverId(next);
+                    next += 1;
+                    let name = crate::unique_name(&from.name, names.iter().map(String::as_str));
+                    let made = crate::Driver { id, name, drives: onto, inputs: inputs(None), parameters, template: None, ..(**from).clone() };
+                    rig.drivers.push(Arc::new(made));
+                    "its driver made"
+                }
+            };
+            if let Some(found) = listed_peg.get(&from.drives).and_then(|listed| applied.matches.get_mut(*listed)) {
+                found.note = Some(found.note.take().map_or(said.to_string(), |note| format!("{note}; {said}")));
+            }
+        }
+        // An input that would now have a driven peg move itself is let go.
+        while let Some(looping) = rig.driver_in_a_loop().map(|driver| driver.id) {
+            let Some(driver) = rig.drivers.iter_mut().find(|driver| driver.id == looping) else { break };
+            for input in &mut Arc::make_mut(driver).inputs {
+                input.peg = None;
             }
         }
         self.next_id = next;
@@ -991,5 +1054,49 @@ mod tests {
         let layer = shot.layers.iter().find(|layer| layer.name == "legR").unwrap();
         assert_eq!((made.parent, made.transform.rotation, layer.parent), (Some(hips), 20.0, Some(made.id)));
         assert!(made.id != hips && layer.template.is_none() && shot.pegs.len() == pegs + 1 && shot.layers.len() == layers + 1);
+    }
+
+    #[test]
+    fn a_templates_driver_goes_onto_the_driver_of_the_peg_its_own_went_onto_or_is_made_there() {
+        use crate::{Driver, DriverId, DriverInput, DriverParameter, Expressions};
+        let mut project = Project::default();
+        let hips = character(&mut project);
+        let shot = project.shots[0].id;
+        let id_of = |project: &Project, name: &str| project.shots[0].pegs.iter().find(|peg| peg.name == name).unwrap().id;
+        // Saved from it: the left leg driven by the hips, with a keyed parameter.
+        let mut driven = project.clone();
+        let (leg, id) = (id_of(&driven, "legL-P"), DriverId(driven.new_id()));
+        {
+            let mut driver = Driver::new(id, "Swing", leg);
+            driver.expressions = Expressions::parse("rotation = hips.x * k").unwrap();
+            driver.inputs = vec![DriverInput { name: "hips".into(), peg: Some(hips) }];
+            let mut track = Track::default();
+            track.set(2, 0.5);
+            driver.parameters = vec![DriverParameter { name: "k".into(), value: 1.0, track }];
+            Arc::make_mut(&mut driven.shots[0]).drivers.push(Arc::new(driver));
+        }
+        let template = driven.template(shot, &[Part::Peg(hips)], "Swing").unwrap();
+        assert_eq!(template.shots[0].drivers.len(), 1);
+
+        // Applied onto the shot, which has no driver: one is made on its left leg, reading its hips.
+        let options = ApplyOptions { frame: Some(10), ..ApplyOptions::default() };
+        let applied = project.apply_template(shot, &template, Some(Node::Peg(hips)), &options).unwrap();
+        let made = project.shots[0].driver_of(id_of(&project, "legL-P")).cloned().expect("a driver was made");
+        assert_eq!((made.name.as_str(), made.inputs[0].peg, made.expressions.text()), ("Swing", Some(hips), "rotation = hips.x * k"));
+        assert_eq!(made.parameters[0].track.keys()[0].frame, 12, "its keys go where the template's frames go");
+        let note = |applied: &Applied| applied.matches.iter().find(|found| found.rig.as_deref() == Some("legL-P")).and_then(|found| found.note.clone());
+        assert_eq!(note(&applied).as_deref(), Some("its driver made"));
+
+        // Applied again, it goes onto that driver, not beside it; what the shot's had besides stays.
+        {
+            let shot = Arc::make_mut(&mut project.shots[0]);
+            let own = Arc::make_mut(shot.drivers.iter_mut().find(|driver| driver.id == made.id).unwrap());
+            own.parameters.push(DriverParameter { name: "spare".into(), value: 3.0, track: Track::default() });
+        }
+        let applied = project.apply_template(shot, &template, Some(Node::Peg(hips)), &ApplyOptions::default()).unwrap();
+        let drivers = &project.shots[0].drivers;
+        assert_eq!(drivers.len(), 1);
+        assert_eq!(drivers[0].parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["k", "spare"]);
+        assert_eq!(note(&applied).as_deref(), Some("its driver applied"));
     }
 }

@@ -61,7 +61,11 @@ impl Curve {
 
     /// The value on every frame of a shot of `frames` frames.
     fn samples(self, peg: &Peg, frames: u32) -> Vec<f64> {
-        let poses = (0..frames).map(|frame| peg.transform_at(frame));
+        self.samples_of((0..frames).map(|frame| peg.transform_at(frame)))
+    }
+
+    /// The value of each of `poses`, a frame's each.
+    fn samples_of(self, poses: impl Iterator<Item = iskra_model::Transform>) -> Vec<f64> {
         match self {
             Curve::Rotation => poses.map(|pose| pose.rotation).collect(),
             Curve::ScaleX => poses.map(|pose| pose.scale[0]).collect(),
@@ -395,7 +399,13 @@ pub struct Curves {
     /// How a chart's points are spaced again when one is dragged: the timelines', handed over
     /// before the curves are shown.
     pub breakdowns: crate::breakdown::Breakdowns,
+    /// What a driven peg comes to on each frame with its driver (plan §8.8), handed over
+    /// before its curves are shown; empty for a peg that is not driven.
+    pub driven: Vec<iskra_model::Transform>,
     drag: Option<Drag>,
+    /// Whether the last plot drew a driven value's curve beside the keyed one.
+    #[cfg(test)]
+    pub driven_drawn: bool,
     /// Where the keyframes and the handles were drawn: frame, and for a handle whether it is the
     /// one out of the keyframe.
     #[cfg(test)]
@@ -445,6 +455,8 @@ impl Curves {
                 for curve in Curve::ALL {
                     let keyed = !peg.animation.frames(Some(curve.channel())).is_empty();
                     let label = if keyed { curve.title().to_string() } else { format!("{} ·", curve.title()) };
+                    // A value its driver adds to says so.
+                    let label = if self.driven_of(curve, peg, frames).is_some() { format!("{label} ƒ") } else { label };
                     let hint = if keyed { "Show this value's curve" } else { "This value has no keyframes: it is the same on every frame" };
                     if ui.selectable_label(self.curve == curve, label).on_hover_text(hint).clicked() {
                         (self.curve, self.drag) = (curve, None);
@@ -454,6 +466,17 @@ impl Curves {
             self.plot(ui, frames.clamp(1, MAX_FRAMES), &Subject::Peg(Box::new(peg.clone()), self.curve), frame, &mut actions);
         });
         actions
+    }
+
+    /// What `curve` of `peg` comes to with its driver on each frame, where that is not what its
+    /// own values make it.
+    fn driven_of(&self, curve: Curve, peg: &Peg, frames: u32) -> Option<Vec<f64>> {
+        if self.driven.len() < frames as usize {
+            return None;
+        }
+        let driven = curve.samples_of(self.driven.iter().take(frames as usize).copied());
+        let own = curve.samples(peg, frames);
+        driven.iter().zip(&own).any(|(a, b)| (a - b).abs() > 1e-9).then_some(driven)
     }
 
     /// Show the curves of an effect node's numbers (plan §8.3), as a peg's values are shown:
@@ -532,9 +555,19 @@ impl Curves {
         // While something is dragged, the plot is of it as the drag has it.
         let shown = self.drag.as_ref().map_or(subject, |drag| &drag.edited);
         let samples = shown.samples(frames);
+        // A driven peg's value as it comes out with its driver, beside its own keyed one.
+        let driven = match subject {
+            Subject::Peg(peg, curve) => self.driven_of(*curve, peg, frames),
+            _ => None,
+        };
+        #[cfg(test)]
+        {
+            self.driven_drawn = driven.is_some();
+        }
         let range = self.drag.as_ref().map_or_else(
             || {
-                let (low, high) = samples.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), v| (low.min(*v), high.max(*v)));
+                let all = samples.iter().chain(driven.iter().flatten());
+                let (low, high) = all.fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), v| (low.min(*v), high.max(*v)));
                 // A value that doesn't change is a level line in the middle.
                 if high - low < 1e-9 { (low - 1.0, low + 1.0) } else { (low, high) }
             },
@@ -559,6 +592,13 @@ impl Curves {
 
         let line: Vec<Pos2> = samples.iter().enumerate().map(|(at, value)| pos2(x(at as f64), y(*value))).collect();
         painter.add(egui::Shape::line(line, Stroke::new(1.5, theme.text)));
+        // Dashed, as a driver's wires are: it can't be dragged, as it is worked out.
+        if let Some(driven) = &driven {
+            let line: Vec<Pos2> = driven.iter().enumerate().map(|(at, value)| pos2(x(at as f64), y(*value))).collect();
+            painter.extend(egui::Shape::dashed_line(&line, Stroke::new(1.5, theme.colour(theme::Role::NodePeg)), 5.0, 4.0));
+            let said = "ƒ dashed: with its driver";
+            painter.text(rect.right_top() + vec2(-6.0, 14.0), Align2::RIGHT_TOP, said, egui::FontId::proportional(10.0), theme.text_muted);
+        }
 
         let keys: Vec<(u32, f64)> = shown.key_frames().into_iter().filter(|at| *at < frames).map(|at| (at, samples[at as usize])).collect();
         if keys.is_empty() {

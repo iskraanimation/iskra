@@ -150,6 +150,9 @@ impl Shot {
         for effect in &mut self.effects {
             *effect = Arc::new(effect.shifted(by));
         }
+        for driver in &mut self.drivers {
+            *driver = Arc::new(driver.shifted(by));
+        }
         self.camera.animation.zoom = self.camera.animation.zoom.shifted(by);
         self.camera.animation.distance = self.camera.animation.distance.shifted(by);
         // The first panel, implied on frame 0, is written out where it now starts.
