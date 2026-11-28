@@ -42,7 +42,7 @@ $Hidden = @(
 # separator: a path with a space in it stays one flag.
 $Flags = @()
 if ($env:RUSTFLAGS) { $Flags += @($env:RUSTFLAGS -split '\s+' | Where-Object { $_ }) }
-foreach ($folder in $Hidden) { $Flags += "--remap-path-prefix=$($folder.From)=$($folder.To)" }
+foreach ($entry in $Hidden) { $Flags += "--remap-path-prefix=$($entry.From)=$($entry.To)" }
 $env:CARGO_ENCODED_RUSTFLAGS = $Flags -join [char]0x1f
 Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
 
@@ -60,10 +60,10 @@ Copy-Item $Built (Join-Path $Folder 'iskra.exe')
 $Bytes = [System.IO.File]::ReadAllBytes((Join-Path $Folder 'iskra.exe'))
 $Text = [System.Text.Encoding]::GetEncoding(28591).GetString($Bytes)
 $Wide = [System.Text.Encoding]::Unicode.GetString($Bytes)
-foreach ($folder in $Hidden) {
+foreach ($entry in $Hidden) {
     foreach ($kept in @($Text, $Wide)) {
-        if ($kept.IndexOf($folder.From, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            throw "win-app: the exe still holds $($folder.From)"
+        if ($kept.IndexOf($entry.From, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw "win-app: the exe still holds $($entry.From)"
         }
     }
 }
