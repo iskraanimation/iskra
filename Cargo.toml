@@ -24,7 +24,7 @@ members = [
 default-members = ["crates/audio", "crates/drawing", "crates/model", "crates/eval", "crates/render", "crates/gpu", "crates/export", "crates/store", "crates/io", "crates/engine", "crates/script", "crates/ui", "crates/tablet-windows", "apps/iskra"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"

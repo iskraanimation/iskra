@@ -28,10 +28,14 @@
 //! Dragging a box moves it; dragging from the port under a box to another box connects them;
 //! Alt-clicking a wire takes it away; Alt-clicking a box wires all that is picked into it; and
 //! the end of a wire is dragged off the box it arrives at onto another, which then has it, or
-//! let go on nothing, which takes the wire away. An effect node let go on a wire goes onto that wire,
-//! which is lit while the node is over it; dragged with Alt held, it comes off the wire it is
-//! on, which is joined again behind it and drawn in red until the node is let go. It is the same graph the timeline shows, so what is done
-//! here is seen there.
+//! let go on nothing, which takes the wire away. A node wired to nothing that is let go on a
+//! wire with Alt held goes onto that wire, if it can sit there (an effect or a composite on a
+//! picture's, a peg or bones on a transform's), and the wire is lit while it is over it with Alt
+//! down; let go without Alt, or wired already, it is only moved. An effect or a peg dragged
+//! with Alt held from the start comes off the wire or the chain it is on: what went through
+//! it is joined again behind it, drawn in red until it is let go, and it is then wired to
+//! nothing, or on the wire it is let go on. It is the same graph the timeline shows, so what
+//! is done here is seen there.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -1042,6 +1046,49 @@ fn rewired(shot: &Shot, wire: &Wire, onto: Item, index: usize) -> Option<Action>
     moved(shot, wire, join(shot, (wire.ends().0, wire.art), onto, index, None)?)
 }
 
+/// Whether `node` can sit on a wire of `kind`: it takes in what such a wire carries and gives
+/// it out again. A picture goes through an effect that takes one and through a composite; a
+/// transform through a peg and through bones. A layer, a display and the camera are only
+/// ever at an end, and a driver only reads.
+fn sits_on(shot: &Shot, node: Item, kind: Kind) -> bool {
+    match (node, kind) {
+        (Item::Effect(id), Kind::Picture) => {
+            shot.effect(id).and_then(iskra_model::Effect::described).is_none_or(|described| described.port(iskra_model::PICTURE).is_some())
+        }
+        (Item::Composite(_), Kind::Picture) | (Item::Peg(_) | Item::Deformer(_), Kind::Transform) => true,
+        _ => false,
+    }
+}
+
+/// The commands, as one step, that put `node`, which is wired to nothing, on `wire`: the wire
+/// is cut, `node` goes where it arrived, and what it left is wired into `node`. `None` where
+/// that can't be done.
+fn put_on(shot: &Shot, wire: &Wire, node: Item) -> Option<Action> {
+    let (from, to) = wire.ends();
+    if matches!(from, Item::Group(_)) || matches!(to, Item::Group(_)) || !sits_on(shot, node, wire.kind) {
+        return None;
+    }
+    let as_command = |action: Action| match action {
+        Action::Run(id, params) => Some(json!({ "id": id, "params": params })),
+        _ => None,
+    };
+    // Where it arrived: a composite's input of the same place, an effect's same port.
+    let into = match to {
+        Item::Composite(id) => {
+            let index = shot.composite(id)?.inputs.iter().position(|input| Some(*input) == wire.source())?;
+            Action::Run("node.connect", json!({ "node": node.source()?, "to": id.0, "index": index }))
+        }
+        Item::Effect(id) if wire.kind == Kind::Picture => {
+            let port = shot.effect(id)?.inputs.iter().find(|(_, input)| Some(**input) == wire.source())?.0.clone();
+            Action::Run("effect.connect", json!({ "effect": id.0, "port": port, "node": node.source()? }))
+        }
+        _ => join(shot, (node, None), to, 0, None)?,
+    };
+    let commands = [cut(shot, wire)?, into, join(shot, (from, wire.art), node, 0, None)?];
+    let commands: Vec<Value> = commands.into_iter().map(as_command).collect::<Option<_>>()?;
+    Some(Action::Run("edit.batch", json!({ "commands": commands, "title": "Put Node on a Wire" })))
+}
+
 /// The commands, as one step, that take `wire` off the box it arrives at and wire what it
 /// leaves elsewhere by `joined`.
 fn moved(shot: &Shot, wire: &Wire, joined: Action) -> Option<Action> {
@@ -1796,8 +1843,16 @@ impl NodeView {
                 without.take_off(*id);
                 Some(without).filter(|without| without != shot)
             }
+            (Some(Drag::Node(Item::Peg(id), _)), true) => {
+                let mut without = shot.clone();
+                without.take_off_peg(*id);
+                Some(without).filter(|without| without != shot)
+            }
             _ => None,
         };
+        // The shot as it is to be when what is dragged is let go: off its chain or its wire, if
+        // it is being taken off.
+        let now = lifted.as_ref().unwrap_or(shot);
         let mut all = wires(lifted.as_ref().unwrap_or(shot), &places);
         if lifted.is_some() {
             let were: Vec<(Item, Item)> = wires(shot, &places).iter().map(|wire| (wire.from, wire.to)).collect();
@@ -1903,12 +1958,24 @@ impl NodeView {
             // The curve as straight pieces: near any of them is near the wire.
             shape.flatten(Some(1.0)).windows(2).any(|piece| distance_to_piece(pos, piece[0], piece[1]) <= reach)
         };
-        // The wire an effect node that is dragged alone is over: let go, the node goes onto
-        // it. Not for a port on a group's frame, which is only moved along its edge.
+        // The wire an effect node that is dragged alone is over with Alt held: let go so, the
+        // node goes onto it; without Alt it is only moved, so a node dragged past a wire is not
+        // wired in by mistake. Not for a port on a group's frame, which is only moved along
+        // its edge.
+        let alt = ui.input(|i| i.modifiers.alt);
+        // Only a node that is wired to nothing goes onto a wire; one that is wired is wired by
+        // hand. An effect that is taken off its wire as it is dragged is wired to nothing.
+        let free = |item: Item| !all.iter().any(|wire| [wire.from, wire.to, wire.ends().0, wire.ends().1].contains(&item));
         let goes_onto = |item: Item, pos: Pos2, alone: bool| {
-            let alone = alone && matches!(item, Item::Effect(_)) && !tabs.contains_key(&item);
-            let takes = |wire: &&Wire| wire.kind == Kind::Picture && wire.from != item && wire.to != item && on_wire(wire, pos, WIRE_REACH * 2.0);
-            all.iter().position(|wire| alone && takes(&wire))
+            if !(alone && alt && !tabs.contains_key(&item) && free(item)) {
+                return None;
+            }
+            let takes = |wire: &Wire| {
+                sits_on(now, item, wire.kind)
+                    && on_wire(wire, pos, WIRE_REACH * 2.0)
+                    && (matches!(item, Item::Effect(_)) || put_on(now, wire, item).is_some())
+            };
+            all.iter().position(takes)
         };
         let over = match (&self.drag, ui.input(|i| i.pointer.interact_pos())) {
             (Some(Drag::Node(item, _)), Some(pos)) => goes_onto(*item, pos, self.along.is_empty()),
@@ -2392,8 +2459,9 @@ impl NodeView {
             let several = picked.contains(&item.key(shot)) && picked.len() > 1;
             if body.drag_started() {
                 self.drag = places.get(&item).map(|at| Drag::Node(item, *at));
-                // With Alt held, an effect node that is dragged alone comes off its wire.
-                self.lifting = !several && matches!(item, Item::Effect(_)) && !tabs.contains_key(&item) && ui.input(|i| i.modifiers.alt);
+                // With Alt held, an effect node or a peg that is dragged alone comes off its
+                // wire or its chain.
+                self.lifting = !several && matches!(item, Item::Effect(_) | Item::Peg(_)) && !tabs.contains_key(&item) && ui.input(|i| i.modifiers.alt);
                 let others = boxes.iter().map(|(other, _)| *other).filter(|other| several && *other != item && picked.contains(&other.key(shot)));
                 self.along = carried(shot, item, others).into_iter().filter_map(|other| Some((other, *places.get(&other)?))).collect();
             }
@@ -2415,17 +2483,31 @@ impl NodeView {
                 && let Some(Drag::Node(dragged, at)) = self.drag.take_if(|drag| matches!(drag, Drag::Node(dragged, _) if *dragged == item))
             {
                 let along = std::mem::take(&mut self.along);
-                // An effect node let go on a wire that carries a picture goes onto that wire.
+                // A node wired to nothing, let go with Alt held on a wire it can sit on, goes
+                // onto that wire.
                 let dropped = body.interact_pointer_pos().filter(|_| !several);
-                let onto = dropped.and_then(|pos| all.get(goes_onto(item, pos, true)?)?.source());
-                if let (Some(onto), Item::Effect(effect)) = (onto, item) {
-                    actions.push(Action::Run("effect.putOn", json!({ "effect": effect.0, "on": onto })));
-                }
+                let onto = dropped.and_then(|pos| all.get(goes_onto(item, pos, true)?));
+                let put = onto.and_then(|wire| match item {
+                    Item::Effect(effect) => Some(Action::Run("effect.putOn", json!({ "effect": effect.0, "on": wire.source()? }))),
+                    // A peg taken off its chain is taken off it first, in the same step.
+                    Item::Peg(peg) if self.lifting && lifted.is_some() => match put_on(now, wire, item)? {
+                        Action::Run(_, params) => {
+                            let off = json!({ "id": "peg.takeOff", "params": { "peg": peg.0 } });
+                            let commands: Vec<Value> = [off].into_iter().chain(params["commands"].as_array()?.iter().cloned()).collect();
+                            Some(Action::Run("edit.batch", json!({ "commands": commands, "title": "Put Node on a Wire" })))
+                        }
+                        _ => None,
+                    },
+                    _ => put_on(now, wire, item),
+                });
+                let onto = put.is_some().then_some(());
+                actions.extend(put);
                 // One that was dragged off its wire, and let go on no other, is off it.
                 let lifted = std::mem::take(&mut self.lifting) && onto.is_none() && lifted.is_some();
                 actions.push(match outside {
                     Some((pos, _)) if several => Action::Save { parts: parts_of(shot, picked), at: Some(pos) },
                     Some((pos, part)) => Action::Save { parts: vec![part], at: Some(pos) },
+                    None if lifted && matches!(item, Item::Peg(_)) => Action::Run("peg.takeOff", json!({ "peg": item.key(shot), "at": [at.x, at.y] })),
                     None if lifted => Action::Run("effect.takeOff", json!({ "effect": item.key(shot), "at": [at.x, at.y] })),
                     None => {
                         let moves: Vec<Value> =

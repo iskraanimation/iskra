@@ -57,13 +57,61 @@ pub trait DrawingConverter: Sync {
 }
 
 /// The user's converter, at its path.
-pub struct Program(pub PathBuf);
+///
+/// Its licence may let fewer copies run at once than there are threads, and a copy turned down
+/// stops at once and says so ("Licensed number of users already reached"); a seat is not freed
+/// the moment a copy ends either. Once a copy is turned down so, the copies are run one at a
+/// time, and one turned down is run again after a wait, for up to [`LICENCE_WAIT`].
+pub struct Program {
+    path: PathBuf,
+    one_at_a_time: AtomicBool,
+    turn: Mutex<()>,
+}
+
+/// How long a command turned down by the converter's licence is tried again for.
+const LICENCE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+impl Program {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, one_at_a_time: AtomicBool::new(false), turn: Mutex::new(()) }
+    }
+}
+
+/// Whether the converter stopped because its licence let no more copies run.
+fn licence_refused(why: &str) -> bool {
+    let why = why.to_lowercase();
+    why.contains("licensing error") || why.contains("number of users")
+}
 
 impl DrawingConverter for Program {
     fn run(&self, args: &[String]) -> Result<String, String> {
+        if !self.one_at_a_time.load(Ordering::Relaxed) {
+            match self.once(args) {
+                Err(why) if licence_refused(&why) => self.one_at_a_time.store(true, Ordering::Relaxed),
+                said => return said,
+            }
+        }
+        let _turn = self.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let until = std::time::Instant::now() + LICENCE_WAIT;
+        let mut wait = std::time::Duration::from_millis(100);
+        loop {
+            match self.once(args) {
+                Err(why) if licence_refused(&why) && std::time::Instant::now() < until => {
+                    std::thread::sleep(wait);
+                    wait = (wait * 2).min(std::time::Duration::from_secs(2));
+                }
+                said => return said,
+            }
+        }
+    }
+}
+
+impl Program {
+    /// Run the converter once.
+    fn once(&self, args: &[String]) -> Result<String, String> {
         // Started in its own folder, where it may look for what it needs.
-        let mut command = std::process::Command::new(&self.0);
-        if let Some(folder) = self.0.parent().filter(|folder| folder.is_dir()) {
+        let mut command = std::process::Command::new(&self.path);
+        if let Some(folder) = self.path.parent().filter(|folder| folder.is_dir()) {
             command.current_dir(folder);
         }
         // On Windows, without a console window of its own opened for every command.
@@ -250,7 +298,7 @@ pub fn convert_drawings(
     cancel: &AtomicBool,
 ) -> Converted {
     let passes = passes(scene);
-    let jobs: Vec<Job> = scene
+    let mut jobs: Vec<Job> = scene
         .elements
         .iter()
         .flat_map(|element| {
@@ -258,6 +306,12 @@ pub fn convert_drawings(
             element.drawings.iter().map(move |drawing| Job { element, drawing, passes: wanted })
         })
         .collect();
+    // A scene may name a drawing whose file is gone, which its own program passes over: the
+    // converter is tried first on a drawing that is there, so that one missing file doesn't
+    // stop the rest.
+    if let Some(there) = jobs.iter().position(|job| job.element.drawing_file(scene, job.drawing).is_file()) {
+        jobs.swap(0, there);
+    }
     // The first drawing alone, the converter saying what goes wrong: if it gives no picture,
     // the rest would fail as it did, and are not tried.
     let mut first = Vec::new();
@@ -431,5 +485,54 @@ mod tests {
         assert!(converted.cancelled && converted.log.is_empty());
         assert_eq!(printed_box("Bounding box: 1 -2.5 3e2 4"), Some([1.0, -2.5, 300.0, 4.0]));
         assert_eq!(printed_box("nothing"), None);
+    }
+
+    #[test]
+    fn a_first_drawing_whose_file_is_gone_does_not_stop_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = r#"<project><elements>
+            <element id="2" elementName="SKETCH" elementFolder="SKETCH"><drawings><dwg name="1"/></drawings></element>
+            <element id="3" elementName="ARM" elementFolder="ARM"><drawings><dwg name="1"/></drawings></element></elements>
+            <options><resolution size="640,480"/></options><scenes><scene><rootgroup name="Top"/></scene></scenes></project>"#;
+        let scene = RigScene::parse(text, dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join("elements/ARM")).unwrap();
+        std::fs::write(dir.path().join("elements/ARM/ARM-1.tvg"), "drawing").unwrap();
+        let stand = Stand { said: Mutex::new(Vec::new()) };
+        let (done, cancel) = (AtomicUsize::new(0), AtomicBool::new(false));
+        let converted = convert_drawings(&scene, &stand, &dir.path().join("out"), 10.0, 1, &done, &cancel);
+        assert_eq!((converted.failed, converted.pictures, done.into_inner()), (false, 3, 2), "{:?}", converted.log);
+        assert!(converted.log.iter().any(|line| line.contains("SKETCH-1.tvg: no such drawing file")), "{:?}", converted.log);
+        // The drawing that is there is the one asked to say what goes wrong.
+        assert!(stand.said.lock().unwrap()[0].join(" ").contains("-debug -printbox") && stand.said.lock().unwrap()[0].last().unwrap().contains("ARM-1.tvg"));
+    }
+
+    /// A converter whose licence lets one copy run at a time: the others, turned down, are run
+    /// again in turn, and every command gets through.
+    #[cfg(unix)]
+    #[test]
+    fn copies_turned_down_by_the_licence_are_run_again_in_turn() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("converter");
+        // The seat is a folder: a copy that can't make it is turned down, as a licence does.
+        let text = "#!/bin/sh\nif mkdir seat 2>/dev/null; then sleep 0.05; rmdir seat; echo \"made $1\"; else echo 'Licensing error (Utilities) Licensed number of users already reached.' >&2; exit 1; fi\n";
+        std::fs::write(&script, text).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let program = Program::new(script);
+        let said: Vec<Result<String, String>> = std::thread::scope(|scope| {
+            let runs: Vec<_> = (0..8)
+                .map(|n| {
+                    let program = &program;
+                    scope.spawn(move || program.run(&[n.to_string()]))
+                })
+                .collect();
+            runs.into_iter().map(|run| run.join().unwrap()).collect()
+        });
+        for (n, said) in said.iter().enumerate() {
+            assert_eq!(said.as_deref(), Ok(format!("made {n}\n").as_str()));
+        }
+        assert!(program.one_at_a_time.load(Ordering::Relaxed), "turned down at least once, so run one at a time");
+        assert!(licence_refused("the converter stopped with exit status: 1: Licensing error (Utilities) / Licensed number of users already reached."));
+        assert!(!licence_refused("the converter stopped with exit status: 1: no such file"));
     }
 }

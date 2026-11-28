@@ -2035,7 +2035,7 @@ checksum = "4275b20e6057cd7733fd8df8a5a31701e4fe44497dad0f3fa0e1c4fb971506be"
 
 [[package]]
 name = "iskra"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "cpal",
  "eframe",
@@ -2053,11 +2053,11 @@ dependencies = [
 
 [[package]]
 name = "iskra-audio"
-version = "0.1.0"
+version = "0.1.2"
 
 [[package]]
 name = "iskra-drawing"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "harfrust",
  "iskra-photocraft-color",
@@ -2078,7 +2078,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-effectcraft-color"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "proptest",
  "serde",
@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-effectcraft-geom"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "proptest",
  "serde",
@@ -2094,7 +2094,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-effectcraft-keyframe"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-effectcraft-color",
  "iskra-effectcraft-geom",
@@ -2106,7 +2106,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-effectcraft-raster"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-effectcraft-color",
  "iskra-effectcraft-geom",
@@ -2115,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-effectcraft-time"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "proptest",
  "serde",
@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-engine"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "image",
  "iskra-audio",
@@ -2143,14 +2143,14 @@ dependencies = [
 
 [[package]]
 name = "iskra-eval"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-model",
 ]
 
 [[package]]
 name = "iskra-export"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "image",
  "iskra-audio",
@@ -2172,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-extract"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-drawing",
  "iskra-io",
@@ -2184,7 +2184,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-filmcraft-aac"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-filmcraft-bitstream",
  "iskra-filmcraft-testkit",
@@ -2194,14 +2194,14 @@ dependencies = [
 
 [[package]]
 name = "iskra-filmcraft-bitstream"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "iskra-filmcraft-h264enc"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-filmcraft-bitstream",
  "iskra-filmcraft-testkit",
@@ -2211,7 +2211,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-filmcraft-isobmff"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-filmcraft-bitstream",
  "iskra-filmcraft-testkit",
@@ -2222,7 +2222,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-filmcraft-prores"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-filmcraft-bitstream",
  "iskra-filmcraft-testkit",
@@ -2232,14 +2232,14 @@ dependencies = [
 
 [[package]]
 name = "iskra-filmcraft-testkit"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "png 0.18.1",
 ]
 
 [[package]]
 name = "iskra-gpu"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-drawing",
  "iskra-eval",
@@ -2251,7 +2251,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-io"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "flate2",
  "image",
@@ -2270,7 +2270,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-model"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-drawing",
  "iskra-effectcraft-keyframe",
@@ -2281,7 +2281,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-photocraft-cms"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "moxcms",
  "rayon",
@@ -2289,7 +2289,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-photocraft-color"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-photocraft-cms",
  "serde",
@@ -2297,14 +2297,14 @@ dependencies = [
 
 [[package]]
 name = "iskra-photocraft-geom"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "iskra-photocraft-paint"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-photocraft-color",
  "iskra-photocraft-geom",
@@ -2315,7 +2315,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-photocraft-psd"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "flate2",
  "iskra-photocraft-psd",
@@ -2326,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-photocraft-raster"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-photocraft-color",
  "iskra-photocraft-geom",
@@ -2337,7 +2337,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-photocraft-tablet"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "block2 0.6.2",
  "objc2 0.6.4",
@@ -2349,7 +2349,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-render"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-drawing",
  "iskra-effectcraft-raster",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-render-cli"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-engine",
  "serde_json",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-script"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "boa_engine",
  "iskra-engine",
@@ -2380,7 +2380,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-store"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-drawing",
  "iskra-model",
@@ -2393,14 +2393,14 @@ dependencies = [
 
 [[package]]
 name = "iskra-tablet-windows"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "iskra-ui"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-vectorcraft-geom"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "kurbo 0.13.1",
  "proptest",
@@ -2440,7 +2440,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-vectorcraft-pathops"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "iskra-vectorcraft-geom",
  "kurbo 0.13.1",
@@ -2451,7 +2451,7 @@ dependencies = [
 
 [[package]]
 name = "iskra-vectorcraft-trace"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "image",
  "iskra-vectorcraft-geom",
@@ -6073,7 +6073,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "image",
  "resvg",

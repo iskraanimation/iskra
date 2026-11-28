@@ -86,6 +86,10 @@ cargo xtask ci                                   # what CI runs: format, clippy,
 
 Run `iskra-render` with no arguments to see its options.
 
+The apps that are handed out are made by `scripts/mac-app.sh`, a universal macOS app in
+`target/mac`, and on Windows by `scripts\win-app.cmd` (from cmd; it runs `scripts\win-app.ps1`), the zip
+in `target\win`. Both keep the builder's folders out of the binary.
+
 On Linux, install the windowing headers first:
 
 ```sh

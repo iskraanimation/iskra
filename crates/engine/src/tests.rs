@@ -2663,6 +2663,25 @@ fn tree(s: &Session) -> String {
 }
 
 #[test]
+fn a_peg_taken_off_its_chain_hands_what_it_carried_to_its_parent() {
+    let mut s = Session::new();
+    let ball = layer(&s);
+    s.execute("layer.rename", json!({ "layer": ball, "name": "Ball" })).unwrap();
+    let ball_peg = id(s.execute("peg.new", json!({ "aboveLayer": ball })).unwrap());
+    let top = id(s.execute("peg.new", json!({ "abovePeg": ball_peg })).unwrap());
+    assert_eq!(tree(&s), "Ball-P-P >Ball-P >>Ball");
+    s.execute("peg.takeOff", json!({ "peg": ball_peg, "at": [10.0, 20.0] })).unwrap();
+    assert_eq!((tree(&s).as_str(), s.history().undo_label()), ("Ball-P-P >Ball Ball-P", Some("Take Peg off Its Chain")));
+    assert_eq!(s.project().shots[0].places.get(&ball_peg), Some(&[10.0, 20.0]));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(tree(&s), "Ball-P-P >Ball-P >>Ball");
+    // The top peg, with no parent, hands what it carried to none.
+    s.execute("peg.takeOff", json!({ "peg": top })).unwrap();
+    assert_eq!(tree(&s), "Ball-P >Ball Ball-P-P");
+    assert!(s.execute("peg.takeOff", json!({ "peg": 999 })).is_err());
+}
+
+#[test]
 fn pegs_carry_what_is_parented_to_them() {
     let mut s = Session::new();
     let ball = layer(&s);

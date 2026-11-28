@@ -378,6 +378,20 @@ impl Shot {
         self.pegs.iter().find(|p| p.id == id).map(|p| &**p)
     }
 
+    /// Takes a peg off the chain it is in, as an effect is taken off its wire: what it
+    /// carried, pegs, layers, the camera and the ports of bones, goes to its parent, and it
+    /// is left with no parent and following no bones.
+    pub fn take_off_peg(&mut self, id: PegId) {
+        let Some(above) = self.peg(id).map(|peg| peg.parent) else { return };
+        self.reparent(id, above);
+        self.rewire_ports(id, above);
+        if let Some(peg) = self.pegs.iter_mut().find(|peg| peg.id == id) {
+            let peg = std::sync::Arc::make_mut(peg);
+            peg.parent = None;
+            peg.follows = None;
+        }
+    }
+
     /// The peg a node is parented to.
     pub fn parent_of(&self, node: Node) -> Option<PegId> {
         match node {

@@ -236,6 +236,7 @@ const COMMANDS: &[Command] = &[
     Command { id: "peg.rename", title: "Rename Peg", run: peg::rename },
     Command { id: "peg.delete", title: "Delete Peg", run: peg::delete },
     Command { id: "peg.setParent", title: "Parent Peg", run: peg::set_parent },
+    Command { id: "peg.takeOff", title: "Take Peg off Its Chain", run: peg::take_off },
     Command { id: "peg.setFolded", title: "Fold Peg", run: peg::set_folded },
     Command { id: "peg.setFollow", title: "Follow Bones", run: peg::set_follow },
     Command { id: "peg.setInherit", title: "Set What Peg Inherits", run: peg::set_inherit },

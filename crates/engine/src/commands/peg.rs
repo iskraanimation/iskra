@@ -255,6 +255,31 @@ pub(super) fn set_parent(s: &mut Session, params: Value) -> Result<Value> {
     Ok(Value::Null)
 }
 
+/// Takes a peg off its chain (`Shot::take_off_peg`): what it carried goes to its parent, and
+/// it is left wired to nothing; with `at`, it is put there in the node view.
+pub(super) fn take_off(s: &mut Session, params: Value) -> Result<Value> {
+    #[derive(Deserialize)]
+    struct Params {
+        peg: u64,
+        at: Option<[f64; 2]>,
+    }
+    let id = "peg.takeOff";
+    let Params { peg, at } = parse(id, params)?;
+    if at.is_some_and(|at| at.iter().any(|v| !v.is_finite() || v.abs() > 1e6)) {
+        return invalid("a place in the node view is within ±1000000");
+    }
+    s.edit(title(id), |p| {
+        let within = shot_of(p, peg)?.id;
+        let Some(shot) = p.shot_mut(within) else { return Ok(()) };
+        shot.take_off_peg(PegId(peg));
+        if let Some(at) = at {
+            shot.places.insert(peg, at);
+        }
+        Ok(())
+    })?;
+    Ok(Value::Null)
+}
+
 /// Makes a peg follow a point of a chain of bones or a curve of its shot (plan §4.5), as a
 /// kinematic output: the peg is carried as the point is posed. With `bends`, as a
 /// wire made new has unless told, the drawings right under it are bent by the bones as their

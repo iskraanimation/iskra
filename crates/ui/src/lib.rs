@@ -5828,7 +5828,7 @@ impl IskraApp {
         let threads = std::thread::available_parallelism().map_or(4, |count| count.get());
         let (counted, stop, folder) = (done.clone(), cancel.clone(), out.clone());
         let thread =
-            std::thread::spawn(move || iskra_io::convert_drawings(&read, &iskra_io::ConverterProgram(converter), &folder, pixels, threads, &counted, &stop));
+            std::thread::spawn(move || iskra_io::convert_drawings(&read, &iskra_io::ConverterProgram::new(converter), &folder, pixels, threads, &counted, &stop));
         self.log.say(format!("rig import: making pictures of {total} drawings of {} in {}", scene.display(), out.display()));
         self.rig_job = Some(RigJob { scene: scene.to_path_buf(), out, total, done, cancel, thread: Some(thread) });
     }
@@ -24784,10 +24784,13 @@ mod tests {
         let put = at(&h, Item::Effect(node));
         assert!((put.center() - free).length() < 2.0, "{put:?} {free:?}");
 
-        // Its box let go on the wire from the layer to the composite puts it on that wire.
+        // Its box let go with Alt on the wire from the layer to the composite puts it on that wire.
         let (from, to) = (at(&h, Item::Layer(layer)).center_bottom(), at(&h, Item::Composite(composite)).center_top());
         let on_wire = from + (to - from) * 0.5;
+        let alt = Modifiers { alt: true, ..Modifiers::NONE };
+        h.frame(vec![Event::ModifiersChanged(alt)]);
         h.drag_between(put.center(), on_wire);
+        h.frame(vec![Event::ModifiersChanged(Modifiers::NONE)]);
         let wired = shot(&h);
         assert_eq!(
             (wired.effect(node).unwrap().picture(), wired.composites[0].inputs.clone(), &h.app.error),
@@ -25169,7 +25172,8 @@ mod tests {
         assert_eq!((shot(&h).display, shot(&h).effect(effect).unwrap().picture()), (Some(Source::Composite(composite)), None));
         assert_eq!((h.app.session.history().undo_label(), &h.app.error, h.app.nodes.lit.len()), (Some("Take Effect off Its Wire"), &None, 0));
         assert!((at(&h, Item::Effect(effect)).center() - to).length() < 8.0, "it lies where it was let go");
-        // Dragged over a wire, without Alt, that wire is lit; let go there, the node is on it.
+        // Dragged over a wire without Alt, the wire is not lit, and let go there the node is
+        // only moved.
         let wire = h
             .app
             .nodes
@@ -25184,8 +25188,32 @@ mod tests {
         h.frame(vec![Event::PointerMoved(from + (middle - from) * 0.5)]);
         h.frame(vec![Event::PointerMoved(middle)]);
         h.frame(vec![]);
-        assert_eq!(h.app.nodes.lit, [(Item::Composite(composite), Item::Display(main_display(&h)), false)]);
+        assert_eq!(h.app.nodes.lit.len(), 0, "no wire is lit without Alt");
         h.frame(vec![button(middle, false, Modifiers::NONE)]);
+        h.frame(vec![]);
+        assert_eq!(
+            (shot(&h).display, shot(&h).effect(effect).unwrap().picture(), h.app.session.history().undo_label()),
+            (Some(Source::Composite(composite)), None, Some("Move Node"))
+        );
+        // With Alt pressed on the way, the wire is lit; let go so, the node is on it.
+        let wire = h
+            .app
+            .nodes
+            .wire_ends
+            .iter()
+            .find(|(a, b, ..)| *a == Item::Composite(composite) && *b == Item::Display(main_display(&h)))
+            .map(|(.., a, b)| (*a, *b))
+            .unwrap();
+        let (from, middle) = (at(&h, Item::Effect(effect)).center(), wire.0 + (wire.1 - wire.0) * 0.5);
+        h.frame(vec![Event::PointerMoved(from)]);
+        h.frame(vec![button(from, true, Modifiers::NONE)]);
+        h.frame(vec![Event::PointerMoved(from + egui::vec2(0.0, 60.0))]);
+        h.frame(vec![Event::PointerMoved(from + egui::vec2(0.0, 120.0))]);
+        h.frame(vec![Event::ModifiersChanged(alt), Event::PointerMoved(middle)]);
+        h.frame(vec![]);
+        assert_eq!(h.app.nodes.lit, [(Item::Composite(composite), Item::Display(main_display(&h)), false)]);
+        h.frame(vec![button(middle, false, alt)]);
+        h.frame(vec![Event::ModifiersChanged(Modifiers::NONE)]);
         h.frame(vec![]);
         assert_eq!(
             (shot(&h).display, shot(&h).effect(effect).unwrap().picture(), &h.app.error),
@@ -25220,6 +25248,103 @@ mod tests {
         let from = at(&h, Item::Effect(effect)).center();
         h.drag_between(from, from + egui::vec2(-160.0, 0.0));
         assert_eq!((shot(&h).display, h.app.session.history().undo_label()), (Some(Source::Effect(effect)), Some("Move Node")));
+    }
+
+    #[test]
+    fn a_free_peg_or_composite_goes_onto_a_wire_let_go_there_with_alt_and_a_peg_comes_off_its_chain_with_alt() {
+        use crate::nodes::Item;
+        use iskra_model::{CompositeId, PegId, Source};
+        let mut h = Harness::new();
+        let layer = h.app.layer.unwrap();
+        run(&mut h, "peg.addParent");
+        let above = h.app.peg.unwrap();
+        let composite = h.app.session.project().shots[0].composites[0].id;
+        let free = PegId(h.app.run_for("peg.new", json!({ "at": [250.0, -300.0] })).unwrap()["id"].as_u64().unwrap());
+        let mixed = CompositeId(h.app.run_for("composite.new", json!({ "at": [-250.0, 0.0] })).unwrap()["id"].as_u64().unwrap());
+        run(&mut h, "panel.nodeView");
+        h.frame(vec![]);
+        let shot = |h: &Harness| h.app.session.project().shots[0].clone();
+        let at = |h: &Harness, item: Item| h.app.nodes.boxes.iter().find(|(other, _)| *other == item).map(|(_, rect)| *rect).expect("a box");
+        let middle = |h: &Harness, from: Item, to: Item| {
+            let (a, b) = h.app.nodes.wire_ends.iter().find(|(a, b, ..)| (*a, *b) == (from, to)).map(|(.., a, b)| (*a, *b)).expect("the wire");
+            a + (b - a) * 0.5
+        };
+        let alt = Modifiers { alt: true, ..Modifiers::NONE };
+        let alt_drag = |h: &mut Harness, from: Pos2, to: Pos2| {
+            h.frame(vec![Event::ModifiersChanged(alt)]);
+            h.drag_between(from, to);
+            h.frame(vec![Event::ModifiersChanged(Modifiers::NONE)]);
+            h.frame(vec![]);
+        };
+        // Let go on the wire from the peg to the layer without Alt, the free peg is only moved.
+        let to = middle(&h, Item::Peg(above), Item::Layer(layer));
+        h.drag_between(at(&h, Item::Peg(free)).center(), to);
+        assert_eq!((shot(&h).layer(layer).unwrap().parent, shot(&h).peg(free).unwrap().parent), (Some(above), None));
+        h.drag_between(at(&h, Item::Peg(free)).center(), to + egui::vec2(300.0, 0.0));
+        // With Alt it goes between them, as one step.
+        let to = middle(&h, Item::Peg(above), Item::Layer(layer));
+        let from = at(&h, Item::Peg(free)).center();
+        alt_drag(&mut h, from, to);
+        assert_eq!((shot(&h).layer(layer).unwrap().parent, shot(&h).peg(free).unwrap().parent, &h.app.error), (Some(free), Some(above), &None));
+        // A free composite goes onto the picture wire from the layer into the composite.
+        let to = middle(&h, Item::Layer(layer), Item::Composite(composite));
+        let from = at(&h, Item::Composite(mixed)).center();
+        alt_drag(&mut h, from, to);
+        let wired = shot(&h);
+        assert_eq!(
+            (wired.composite(composite).unwrap().inputs.clone(), wired.composite(mixed).unwrap().inputs.clone(), &h.app.error),
+            (vec![Source::Composite(mixed)], vec![Source::Layer(layer)], &None)
+        );
+        // The peg, wired now, is not put on a wire with Alt pressed on the way: it is only moved.
+        let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        let camera_peg = shot(&h).camera.parent.expect("the camera's peg");
+        let to = middle(&h, Item::Peg(camera_peg), Item::Camera);
+        let from = at(&h, Item::Peg(free)).center();
+        h.frame(vec![Event::PointerMoved(from)]);
+        h.frame(vec![button(from, true)]);
+        h.frame(vec![Event::PointerMoved(from + (to - from) * 0.5)]);
+        h.frame(vec![Event::ModifiersChanged(alt), Event::PointerMoved(to)]);
+        h.frame(vec![button(to, false)]);
+        h.frame(vec![Event::ModifiersChanged(Modifiers::NONE)]);
+        h.frame(vec![]);
+        assert_eq!(
+            (shot(&h).peg(free).unwrap().parent, shot(&h).layer(layer).unwrap().parent, shot(&h).camera.parent),
+            (Some(above), Some(free), Some(camera_peg))
+        );
+        // With Alt held from the start, a peg comes off its chain: what it carried goes to its
+        // parent, and while it is dragged that wire is drawn in red.
+        let from = at(&h, Item::Peg(free)).center();
+        let away = from + egui::vec2(0.0, -60.0);
+        h.frame(vec![Event::ModifiersChanged(alt), Event::PointerMoved(from)]);
+        h.frame(vec![Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: alt }]);
+        h.frame(vec![Event::PointerMoved(from + (away - from) * 0.5)]);
+        h.frame(vec![Event::PointerMoved(away)]);
+        h.frame(vec![]);
+        assert!(h.app.nodes.lit.contains(&(Item::Peg(above), Item::Layer(layer), true)), "{:?}", h.app.nodes.lit);
+        h.frame(vec![Event::PointerButton { pos: away, button: PointerButton::Primary, pressed: false, modifiers: alt }]);
+        h.frame(vec![Event::ModifiersChanged(Modifiers::NONE)]);
+        h.frame(vec![]);
+        assert_eq!(
+            (shot(&h).peg(free).unwrap().parent, shot(&h).layer(layer).unwrap().parent, h.app.session.history().undo_label(), &h.app.error),
+            (None, Some(above), Some("Take Peg off Its Chain"), &None)
+        );
+        assert!((at(&h, Item::Peg(free)).center() - away).length() < 8.0, "it lies where it was let go");
+        // Put back, then taken off with Alt held from the start and let go on another wire,
+        // it goes there, as one step.
+        h.app.run("edit.undo", json!({}));
+        h.frame(vec![]);
+        assert_eq!(shot(&h).layer(layer).unwrap().parent, Some(free));
+        let to = middle(&h, Item::Peg(camera_peg), Item::Camera);
+        h.drag_between(at(&h, Item::Peg(free)).center(), to + egui::vec2(0.0, -70.0));
+        let from = at(&h, Item::Peg(free)).center();
+        alt_drag(&mut h, from, to);
+        assert_eq!(
+            (shot(&h).peg(free).unwrap().parent, shot(&h).layer(layer).unwrap().parent, shot(&h).camera.parent, &h.app.error),
+            (Some(camera_peg), Some(above), Some(free), &None)
+        );
+        h.app.run("edit.undo", json!({}));
+        h.app.run("edit.undo", json!({}));
+        assert_eq!((shot(&h).peg(free).unwrap().parent, shot(&h).layer(layer).unwrap().parent, shot(&h).camera.parent), (Some(above), Some(free), Some(camera_peg)));
     }
 
     #[test]
